@@ -30,8 +30,25 @@ int8_t debounce_switch() {
 int main()
 {
 DDRB = 0xFF;  //set port B to all outputs
+
+uint16_t x = 0;
+
 while(1){     //do forever
- if(debounce_switch()) {PORTB++;}  //if switch true for 12 passes, increment port B
+  if(debounce_switch()) {x++;}  //if switch true for 12 passes, increment port B
+
+  //put everything in the if statement above? more efficient
+
+  if(x > 99) {x = 0;}
+
+  //first digit is # / 10
+  uint8_t first = x / 10;
+  //second digit is # % 10
+  uint8_t second = x % 10;
+
+
   _delay_ms(2);                    //keep in loop to debounce 24ms
+
+  //assign both digits to port B, with a << 4 shift on the first digit?
+  PORTB = (first << 4) + second;
   } //while 
 } //main
