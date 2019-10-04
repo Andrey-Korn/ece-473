@@ -1,6 +1,6 @@
 // lab1_code.c 
-// R. Traylor
-// 7.21.08
+// Andrey Kornilovich
+// 10.03.19
 
 //This program increments a binary display of the number of button pushes on switch 
 //S0 on the mega128 board.
@@ -31,24 +31,19 @@ int main()
 {
 DDRB = 0xFF;  //set port B to all outputs
 
-uint16_t x = 0;
+uint16_t x = 0;   //counter from 0 to 99
 
 while(1){     //do forever
-  if(debounce_switch()) {x++;}  //if switch true for 12 passes, increment port B
+  if(debounce_switch()) {x++;}  //if switch true for 12 passes, increment x
 
-  //put everything in the if statement above? more efficient
+  if(x > 99) {x = 0;}     //reset
 
-  if(x > 99) {x = 0;}
+  uint8_t MSB = x / 10;   //floor the count to get the MSB
+  uint8_t LSB = x % 10;  //mod the count to get the LSB
 
-  //first digit is # / 10
-  uint8_t first = x / 10;
-  //second digit is # % 10
-  uint8_t second = x % 10;
+  _delay_ms(2);         //keep in loop to debounce 24ms
 
-
-  _delay_ms(2);                    //keep in loop to debounce 24ms
-
-  //assign both digits to port B, with a << 4 shift on the first digit?
-  PORTB = (first << 4) + second;
+  //shift the MSB by 
+  PORTB = (MSB << 4) + LSB;
   } //while 
 } //main
