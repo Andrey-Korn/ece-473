@@ -1,5 +1,5 @@
 // lab2_skel.c 
-// R. Traylor
+// Andrey Kornilovich
 // 9.12.08
 
 //  HARDWARE SETUP:
