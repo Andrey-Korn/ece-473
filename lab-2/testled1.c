@@ -30,24 +30,32 @@
 
 int main()
 {
-DDRA  = 0xFF;   //set port A to all outputs
-DDRB  = 0xF0;   //set port bits 4-7 B as outputs
-DDRD  = 0x00;   //set port D all inputs 
-PORTD = 0xFF;   //set port D all pullups 
+// DDRA  = 0xFF;   //set port A to all outputs
+// DDRB  = 0xF0;   //set port bits 4-7 B as outputs
+// DDRD  = 0x00;   //set port D all inputs 
+// PORTD = 0xFF;   //set port D all pullups 
 // PORTA = 0xFF;   //set port A to all ones  (off, active low)
-PORTA = 0xFE;
+// PORTA = 0xFE;
+DDRB = 0xFF;
+DDRA = 0x00;
+PORTA = 0xFF;
 
 while(1){
   // PORTB = 0x00; //digit zero  on 
- PORTB = 0x10; //digit one   on 
+//  PORTB = 0x10; //digit one   on 
 //  PORTB = 0x20; //colon, indicator leds  on
 //  PORTB = 0x30; //digit two   on 
 //  PORTB = 0x40; //digit three on 
 
   // PORTA = PIND; //push button determines which segment is on
   // PORTA = 0b10011000;
-  PORTA = 0b11111011;
-  _delay_ms(500);
+  //PORTA = 0b11111011;
+  //_delay_ms(500);
+
+  // PORTB = 0xFF;
+
+  // DDRB = DDRA;
+  PORTB = ~(PORTA);
 
   } //while
 }  //main

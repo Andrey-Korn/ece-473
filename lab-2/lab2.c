@@ -56,35 +56,35 @@ void encode_chars(){
 void pick_digit(int digit){
   //set the correct port B output without clobbering the rest of the register
   switch (digit){
-    //first (msb) digit
+    //first (msb) digit, Y4 on decoder
     case 0:
       PORTB &= ~(DEC_1 | DEC_2); //clear decoder control pins
       PORTB |= DEC_3;            //set decoder control pin  
       break;
-    //second digit  
+    //second digit, Y3 on decoder
     case 1:
       PORTB &= ~(DEC_3); 
       PORTB |= (DEC_1 | DEC_2); 
       break;
-    //third digit
+    //third digit, Y1 on decoder
     case 2:
       PORTB &= ~(DEC_2 | DEC_3);
       PORTB |= DEC_1;
       break;
-    //fourth (lsb) digit
+    //fourth (lsb) digit, Y0 on decoder
     case 3:
       PORTB &= ~(DEC_1 | DEC_2 | DEC_3);
       break;
-    //colon
+    //colon, Y2 on decoder
     case 4:
       PORTB &= ~(DEC_1 | DEC_3);
       PORTB |= DEC_2;
       break;
-    //enable button board
+    //enable button board, Y7 on decoder
     case 5:
       PORTB |= (DEC_1 | DEC_2 | DEC_3);
       break;
-    //no digit or button board (off)
+    //no digit or button board (off), Y6 on decoder
      case 6:
       PORTB &= ~(DEC_1);
       PORTB |= (DEC_2 | DEC_3);
@@ -103,19 +103,19 @@ void pick_digit(int digit){
 //Expects active low pushbuttons on PINA port.  Debounce time is determined by 
 //external loop delay times 12. 
 //
-// uint8_t chk_buttons(uint8_t button) {
-//   static uint16_t state = 0; //holds present state
-//   state = (state << 1) | (! bit_is_clear(PINA, button)) | 0xFFE0;
-//   if (state == 0xFFF0) return 1;
-  // return 0;
-}//chk_buttons
-
 uint8_t chk_buttons(uint8_t button) {
   static uint16_t state = 0; //holds present state
-  state = (state << 1) | (! bit_is_clear(PINA, button)) | 0xE000;
-  if (state == 0xF000) return 1;
+  state = (state << 1) | (! bit_is_clear(PINA, button)) | 0xFFE0;
+  if (state == 0xFFF0) return 1;
   return 0;
-}
+}//chk_buttons
+
+// uint8_t chk_buttons(uint8_t button) {
+//   static uint16_t state = 0; //holds present state
+//   state = (state << 1) | (! bit_is_clear(PINA, button)) | 0xE000;
+//   if (state == 0xF000) return 1;
+//   return 0;
+// }
 
 //***********************************************************************************
 //                                   segment_sum                                    
@@ -156,23 +156,36 @@ while(1){
   PORTA = 0xFF;
 
   //enable tristate buffer for pushbutton switches
-  pick_digit(5); //clear PB4-6 to enable tristate output
+  pick_digit(5);
+  asm volatile ("nop");
+  asm volatile ("nop");
 
  //now check each button and increment the count as needed
-  int i = 0;
-  for(i = 0; i < 8; i++){
-    if(chk_buttons(i)){
-     //button_counter += pow(2, i + 1); //increment the counter based on 2^button
-     button_counter++;
-    }
-  }
+  // int button;
+  // for(button = 0; button < 8; button++){
+  //   if(chk_buttons(button)){
+  //   //  button_counter += pow(2, button + 1); //increment the counter based on 2^button
+  //    button_counter++;
+  //   }
+  //   _delay_ms(1);
+    // asm volatile ("nop");
+    // asm volatile ("nop");
+    // asm volatile ("nop");
+    // asm volatile ("nop");
+  // }
+
+  if(chk_buttons(0)) {button_counter += 1;}
+  // asm volatile ("nop");
+  // _delay_ms(1);
+  // asm volatile ("nop");
+  if(chk_buttons(1)) {button_counter += 2;}
+
 
   //disable tristate buffer for pushbutton switches  
-  pick_digit(6);
+  // pick_digit(6);
 
   //bound the count to 0 - 1023
   if(button_counter >= 1024) {button_counter = 1;}
-
 
   //button_counter = 123;
   //break up the disp_value to 4, BCD digits in the array: call (segsum)
@@ -187,8 +200,6 @@ while(1){
   int digit;
   for(digit = 0; digit < 4; digit++){
     PORTA = segment_data[digit];
-
-    asm volatile ("nop");
     pick_digit(digit);
     _delay_ms(2);
   }
@@ -196,7 +207,7 @@ while(1){
   //insert loop delay for debounce
 
   // delay and increment to test the display
-  //_delay_ms(100);
+  // _delay_ms(2);
   //button_counter++;
 
   }//while
