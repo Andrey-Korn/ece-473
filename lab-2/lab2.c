@@ -84,6 +84,11 @@ void pick_digit(int digit){
     case 5:
       PORTB |= (DEC_1 | DEC_2 | DEC_3);
       break;
+    //no digit or button board (off)
+     case 6:
+      PORTB &= ~(DEC_1);
+      PORTB |= (DEC_2 | DEC_3);
+      // break;
     default:
       break;
   }  
@@ -98,12 +103,19 @@ void pick_digit(int digit){
 //Expects active low pushbuttons on PINA port.  Debounce time is determined by 
 //external loop delay times 12. 
 //
+// uint8_t chk_buttons(uint8_t button) {
+//   static uint16_t state = 0; //holds present state
+//   state = (state << 1) | (! bit_is_clear(PINA, button)) | 0xFFE0;
+//   if (state == 0xFFF0) return 1;
+  // return 0;
+}//chk_buttons
+
 uint8_t chk_buttons(uint8_t button) {
   static uint16_t state = 0; //holds present state
-  state = (state << 1) | (! bit_is_clear(PINA, button)) | 0xFFE0;
-  if (state == 0xFFF0) return 1;
+  state = (state << 1) | (! bit_is_clear(PINA, button)) | 0xE000;
+  if (state == 0xF000) return 1;
   return 0;
-}//chk_buttons
+}
 
 //***********************************************************************************
 //                                   segment_sum                                    
@@ -111,28 +123,20 @@ uint8_t chk_buttons(uint8_t button) {
 //BCD segment code in the array segment_data for display.                       
 //array is loaded at exit as:  |digit3|digit2|colon|digit1|digit0|
 void segsum(uint16_t sum) {
-  //determine how many digits there are 
-  uint8_t num_dig;
-  uint16_t temp = sum;
-  while(temp != 0){
-    temp /= 10;
-    num_dig++;
-  }
 
   //break up decimal sum into 4 digit-segments
-  segment_data[0] = dec_to_7seg[sum/1000];
+  segment_data[0] = dec_to_7seg[sum/1000]; //msb
   segment_data[1] = dec_to_7seg[(sum/100) % 10];
-  segment_data[2] = dec_to_7seg[10];
-  segment_data[3] = dec_to_7seg[(sum/10) % 10];
-  segment_data[4] = dec_to_7seg[sum % 10];
+  segment_data[2] = dec_to_7seg[(sum/10) % 10];
+  segment_data[3] = dec_to_7seg[sum % 10]; //lsb
+  segment_data[4] = dec_to_7seg[10]; //assign empty value for colon
 
   //blank out leading zero digits 
-  // int segs = 0;
-  // for(segs = 0; segs < 4; segs++){
-  //   if(segs == 3) {segs++;}
-  //   if(segment_data[segs] == 0) {segment_data[segs] = dec_to_7seg[10];}
-  //   else {break;}
-  // }
+  int segs = 0;
+  for(segs = 0; segs < 3; segs++){
+    if(segment_data[segs] == dec_to_7seg[0]) {segment_data[segs] = dec_to_7seg[10];}
+    else {break;}
+  }
   //now move data to right place for misplaced colon position
 }//segment_sum
 
@@ -142,62 +146,59 @@ uint8_t main()
 //set port bits 4-7 B as outputs
 DDRB = 0xF0; // 1 for output, 0 for input
 uint16_t button_counter = 0;
-uint8_t digit_counter = 0;
 encode_chars();
 
 while(1){
-  //insert loop delay for debounce
-  _delay_ms(1);
-
   //make PORTA an input port with pullups   
-  // DDRA = 0x00;
-  // asm volatile ("nop");
-  // asm volatile ("nop");
-  // PORTA = 0xFF;
+  DDRA = 0x00;
+  asm volatile ("nop");
+  asm volatile ("nop");
+  PORTA = 0xFF;
 
   //enable tristate buffer for pushbutton switches
-  // PORTB &= ~(1 << PB4) | ~(1 << PB5) | ~(1 << PB6); //clear PB4-6 to enable tristate output
-  // pick_digit(5);
+  pick_digit(5); //clear PB4-6 to enable tristate output
 
-  //now check each button and increment the count as needed
-  // int i = 0;
-  // for(i = 0; i < 8; i++){
-  //   if(chk_buttons(i)){
-  //     if(i == 7) {
-  //       button_counter -= 128;
-  //     }
-  //     else{
-  //       button_counter += pow(2, i + 1); //increment the counter based on 2^button
-  //     }
-  //   }
-  // }
+ //now check each button and increment the count as needed
+  int i = 0;
+  for(i = 0; i < 8; i++){
+    if(chk_buttons(i)){
+     //button_counter += pow(2, i + 1); //increment the counter based on 2^button
+     button_counter++;
+    }
+  }
 
-  //disable tristate buffer for pushbutton switches
-  // PORTB |= (1 << PB4) | (1 << PB5) | (1 << PB6); //set PB4-6 back to 1 to disable
+  //disable tristate buffer for pushbutton switches  
+  pick_digit(6);
 
   //bound the count to 0 - 1023
   if(button_counter >= 1024) {button_counter = 1;}
-  else if(button_counter < 0) {button_counter = 0;}
 
+
+  //button_counter = 123;
   //break up the disp_value to 4, BCD digits in the array: call (segsum)
-  segsum(0);
-
-  //bound a counter (0-4) to keep track of digit to display 
-  if(digit_counter > 4) {digit_counter = 0;}
+  segsum(button_counter);
 
   //make PORTA an output
   DDRA = 0xFF;
   asm volatile ("nop");
   asm volatile ("nop");
 
-  //send 7 segment code to LED segments
-  // PORTA = segment_data[digit_counter];
-  // PORTA = segment_data[0];
-  PORTA = dec_to_7seg[9];
+  //cycle through all the digits and assign the correct number to display
+  int digit;
+  for(digit = 0; digit < 4; digit++){
+    PORTA = segment_data[digit];
 
-  //send PORTB the digit to display
-  pick_digit(digit_counter++);
+    asm volatile ("nop");
+    pick_digit(digit);
+    _delay_ms(2);
+  }
   
+  //insert loop delay for debounce
+
+  // delay and increment to test the display
+  //_delay_ms(100);
+  //button_counter++;
+
   }//while
   return 0;
 }//main
