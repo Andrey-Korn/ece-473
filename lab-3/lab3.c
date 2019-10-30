@@ -39,7 +39,7 @@ int digit = 0;
 uint16_t num_to_display = 0;
 
 // write to dec_to_7seg all the pins to display 0-9, blank, and the decimal point
-void encode_chars(){
+void encode_chars(void){
   dec_to_7seg[0] = ~(SEG_A | SEG_B | SEG_C | SEG_D | SEG_E | SEG_F); //0
   dec_to_7seg[1] = ~(SEG_B | SEG_C); //1
   dec_to_7seg[2] = ~(SEG_A | SEG_B | SEG_G | SEG_E | SEG_D); //2
@@ -117,7 +117,7 @@ uint8_t chk_buttons(uint8_t button) {
 //                                   segment_sum                                    
 //takes a 16-bit binary input value and places the appropriate equivalent 4 digit 
 //BCD segment code in the array segment_data for display.                       
-//array is loaded at exit as:  |digit3|digit2|colon|digit1|digit0|
+//array is loaded at exit as:  |digit3|digit2|digit1|digit0|colon
 void segsum(uint16_t sum) {
 
   //break up decimal sum into 4 digit-segments
@@ -130,14 +130,13 @@ void segsum(uint16_t sum) {
   //blank out leading zero digits 
   int segs;
   for(segs = 0; segs < 3; segs++){
-	//if segment is 0, blank it out
-	if(segment_data[segs] == dec_to_7seg[0]) {segment_data[segs] = dec_to_7seg[10];}
-	else {break;}
+	  //if segment is 0, blank it out
+	  if(segment_data[segs] == dec_to_7seg[0]) {segment_data[segs] = dec_to_7seg[10];}
+	  else {break;}
   }
-  //now move data to right place for misplaced colon position
 }//segment_sum
 
-void update_7seg(){
+void update_7seg(void){
   //make PORTA an output
   DDRA = 0xFF;
 
@@ -147,10 +146,10 @@ void update_7seg(){
 
   //increment the digit and reset
   digit++;
-  if(digit >= 4) {digit = 0;}
+  if(digit > 3) {digit = 0;}
 }
 
-void process_buttons(){
+void process_buttons(void){
   //make PORTA an input port with pullups   
   DDRA = 0x00;
   PORTA = 0xFF;
@@ -165,52 +164,70 @@ void process_buttons(){
   }
 }
 
-void process_encoders(){
-
+int process_encoders(){
+  PORTE &= (0 << PE6);
+  PORTE |= (1 << PE6);
+  SPDR = 0x00;
+  while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
+  if(SPDR != 0xFF) {return 1;}
+  else {return 0;}
+  
 }
 
-void update_bar(){
-
+void update_bar(void){
+  SPDR = 0x81;                       //load SPDR to send to bar graph
+  while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
+  PORTB |= (1 << PB0);          //HC595 output reg - rising edge...
+  PORTB &= (0 << PB0);          //and falling edge
 }
 
-void setup_ports(){
+void setup_ports(void){
 	//set port bits 4-7 B as outputs
 	DDRB = 0xF0; // 1 for output, 0 for input
+  // set port E bit 6 as output
+  DDRE = 0x40;
 }
 
-void init_tcnt0(){
-	ASSR  |=  (1<<AS0);                //run off external 32khz osc (TOSC)
-	TIMSK |= (1<<OCIE0);		     //enable interrupts for output compare match 0
-	TCCR0 |=  (1<<WGM01) | (1<<CS00);  //CTC mode, no prescale
-	OCR0  |=  0x07f;                   //compare at 128
+void tcnt0_init(void){
+  TIMSK |= (1<<TOIE0);             //enable interrupts
+  TCCR0 |= (1<<CS02) | (1<<CS00);  //normal mode, prescale by 128
 }
 
-ISR(TIMER0_COMP_vect){
+void spi_init(void){
+  DDRB |= (1 << PB0) | (1 << PB1) | (1 << PB2) | (1 << PB3); //Turn on SS, MOSI, SCLK, MISO
+  SPCR |= (1 << SPE) | (1 << MSTR); //enable SPI, master mode 
+  // SPCR |= (1 << SPE); //enable SPI, master mode 
+  SPSR |= (1 << SPI2X); // double speed operation
+} 
+
+ISR(TIMER0_OVF_vect){
+  // static uint8_t count = 0;
 	process_buttons();
 	//process_encoders();
 
+  if(process_encoders()) {num_to_display++;}
+
   //bound the count to 0 - 1023
-  if(num_to_display >= 1024) {num_to_display = 1;}
+  if(num_to_display > 1023) {num_to_display = 1;} //change to go back to 1023 instead of 1
+  if(num_to_display < 0) {num_to_display = 0;}
 
   //break up the disp_value to 4, BCD digits in the array: call (segsum)
   segsum(num_to_display);
 
-	//update_bar();
+	update_bar();
 	update_7seg();
 }
 
 //***********************************************************************************
-uint8_t main()
-{
+uint8_t main(){
 
-//define counters, and call array initializers
-setup_ports();
-encode_chars();
-init_tcnt0();
-//init_spi();
-sei();
+  setup_ports();
+  encode_chars();
+  tcnt0_init();
+  spi_init();
+  sei();
 
-while(1){}//while
+  while(1){} // empty while loop
 
-return 0;
+  return 0;
 }//main
