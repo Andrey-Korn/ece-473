@@ -138,9 +138,9 @@ void segsum(uint16_t sum) {
   //blank out leading zero digits 
   int segs;
   for(segs = 0; segs < 3; segs++){
-	  //if segment is 0, blank it out
-	  if(segment_data[segs] == dec_to_7seg[0]) {segment_data[segs] = dec_to_7seg[10];}
-	  else {break;}
+    //if segment is 0, blank it out
+    if(segment_data[segs] == dec_to_7seg[0]) {segment_data[segs] = dec_to_7seg[10];}
+    else {break;}
   }
 }//segment_sum
 
@@ -168,7 +168,7 @@ int process_buttons(void){
  //now check each button and set the state as needed
   int button;
   for(button = 0; button < 8; button++){
-	  if(chk_buttons(button)) {
+    if(chk_buttons(button)) {
       switch (button)
       {
       case 0:
@@ -255,7 +255,7 @@ void spi_init(void){
 //this ISR handles main lab functionality and timing
 ISR(TIMER0_OVF_vect){
   //process button presses, change modes, and update counts
-	process_buttons();
+  process_buttons();
   num_to_display += process_encoders() * count_scale;
 
   //bound the count to 0 - 1023
@@ -266,8 +266,8 @@ ISR(TIMER0_OVF_vect){
   segsum(num_to_display);
 
   //update displays
-	update_bar();
-	update_7seg();
+  update_bar();
+  update_7seg();
 }
 
 //***********************************************************************************
