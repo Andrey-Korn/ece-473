@@ -26,6 +26,9 @@
 #define DEC_3 0x40
 #define PWM 0x80
 
+#define ENC_A 0b00000011
+#define ENC_B 0b00001100
+
 //holds data to be sent to the segments. logic zero turns segment on
 uint8_t segment_data[5]; 
 
@@ -37,6 +40,11 @@ int digit = 0;
 
 //num to display on 7 seg
 uint16_t num_to_display = 0;
+
+//scale to multiply by the encoder output
+int count_scale = 1;
+
+uint8_t button_state = 0x00;
 
 // write to dec_to_7seg all the pins to display 0-9, blank, and the decimal point
 void encode_chars(void){
@@ -149,10 +157,12 @@ void update_7seg(void){
   if(digit > 3) {digit = 0;}
 }
 
-void process_buttons(void){
+int process_buttons(void){
   //make PORTA an input port with pullups   
   DDRA = 0x00;
   PORTA = 0xFF;
+
+  // static uint8_t state = 0x00;
 
   //enable tristate buffer for pushbutton switches
   pick_digit(5);
@@ -160,55 +170,96 @@ void process_buttons(void){
  //now check each button and increment the count as needed
   int button;
   for(button = 0; button < 8; button++){
-	if(chk_buttons(button)) {num_to_display += (1 << button);} //shift left
+	  if(chk_buttons(button)) {
+      switch (button)
+      {
+      case 0:
+        button_state ^= 0x01;
+        break;
+      case 1:
+        button_state ^= 0x02;
+      default:
+        break;
+      }
+    } 
   }
+
+  if(button_state == 0x00) {count_scale = 1;} 
+  if(button_state == 0x01) {count_scale = 2;} 
+  if(button_state == 0x02) {count_scale = 4;} 
+  if(button_state == 0x03) {count_scale = 0;} 
+
 }
 
 int process_encoders(){
-  PORTE &= (0 << PE6);
+  PORTE &= (0 << PE6);              //flip the load bit on the shift reg
   PORTE |= (1 << PE6);
-  SPDR = 0x00;
+  SPDR = 0x00;                      //dummy SPI data
   while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
-  if(SPDR != 0xFF) {return 1;}
-  else {return 0;}
-  
+
+  // SPDR now stores encoder information
+  static uint8_t prev_spi = 0xFF;          //store the previous SPI packet
+
+  if(prev_spi != SPDR){
+
+    if(((SPDR & ENC_A) == 0b00000011) && ((prev_spi & ENC_A) == 0b00000010)){
+      prev_spi = SPDR;
+      return -1;
+    }
+
+    if(((SPDR & ENC_A) == 0b00000011) && ((prev_spi & ENC_A) == 0b00000001)){
+      prev_spi = SPDR;
+      return 1;
+    }
+
+    if(((SPDR & ENC_B) == 0b00001100) && ((prev_spi & ENC_B) == 0b00001000)){
+      prev_spi = SPDR;
+      return -1;
+    }
+
+    if(((SPDR & ENC_B) == 0b00001100) && ((prev_spi & ENC_B) == 0b00000100)){
+      prev_spi = SPDR;
+      return 1;
+    }
+
+    prev_spi = SPDR;
+  }
+  return 0;
 }
 
 void update_bar(void){
-  SPDR = 0x81;                       //load SPDR to send to bar graph
+  SPDR = button_state;                       //load SPDR to send to bar graph
   while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
   PORTB |= (1 << PB0);          //HC595 output reg - rising edge...
   PORTB &= (0 << PB0);          //and falling edge
 }
 
 void setup_ports(void){
-	//set port bits 4-7 B as outputs
-	DDRB = 0xF0; // 1 for output, 0 for input
-  // set port E bit 6 as output
-  DDRE = 0x40;
+  // 1 for output, 0 for input
+	DDRB = 0xF0;   //set port bits 4-7 B as outputs
+  DDRE = 0x40;  // set port E bit 6 as output
 }
 
 void tcnt0_init(void){
   TIMSK |= (1<<TOIE0);             //enable interrupts
-  TCCR0 |= (1<<CS02) | (1<<CS00);  //normal mode, prescale by 128
+  TCCR0 |= (1<<CS01) | (1<<CS00);  //normal mode, prescale by 128
 }
 
 void spi_init(void){
   DDRB |= (1 << PB0) | (1 << PB1) | (1 << PB2) | (1 << PB3); //Turn on SS, MOSI, SCLK, MISO
   SPCR |= (1 << SPE) | (1 << MSTR); //enable SPI, master mode 
-  // SPCR |= (1 << SPE); //enable SPI, master mode 
   SPSR |= (1 << SPI2X); // double speed operation
 } 
 
-ISR(TIMER0_OVF_vect){
-  // static uint8_t count = 0;
-	process_buttons();
-	//process_encoders();
+// maybe separate ISR for encoders?
 
-  if(process_encoders()) {num_to_display++;}
+ISR(TIMER0_OVF_vect){
+	process_buttons();
+
+  num_to_display += process_encoders() * count_scale;
 
   //bound the count to 0 - 1023
-  if(num_to_display > 1023) {num_to_display = 1;} //change to go back to 1023 instead of 1
+  if(num_to_display > 1023) {num_to_display = 1023;} //change to go back to 1023 instead of 1
   if(num_to_display < 0) {num_to_display = 0;}
 
   //break up the disp_value to 4, BCD digits in the array: call (segsum)
