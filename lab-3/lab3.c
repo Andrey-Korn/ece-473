@@ -26,8 +26,11 @@
 #define DEC_3 0x40
 #define PWM 0x80
 
-#define ENC_A 0b00000011
-#define ENC_B 0b00001100
+// #define ENC_A 0b00000011
+// #define ENC_B 0b00001100
+
+#define ENC_A 0b11111100
+#define ENC_B 0b11110011
 
 //holds data to be sent to the segments. logic zero turns segment on
 uint8_t segment_data[5]; 
@@ -189,7 +192,8 @@ int process_buttons(void){
   if(button_state == 0x03) {count_scale = 0;} 
 
 }
-
+/*
+// other approach with just 2 previous state checking, can get fooled
 int process_encoders(){
   PORTE &= (0 << PE6);              //flip the load bit on the shift reg
   PORTE |= (1 << PE6);
@@ -200,24 +204,24 @@ int process_encoders(){
   static uint8_t prev_spi = 0xFF;          //store the previous SPI packet
 
   //check current and previous state, return a result if transition back to 0xFF found
-  if(prev_spi != SPDR){
+  if(prev_spi_a != SPDR){
     //CCW check for encoder A
-    if(((SPDR & ENC_A) == 0b00000011) && ((prev_spi & ENC_A) == 0b00000010)){
+    if(((SPDR & ENC_A) == 0b00000011) && ((prev_spi_a & ENC_A) == 0b00000010)){
       prev_spi = SPDR;
       return -1;
     }
     //CW check for encoder A
-    if(((SPDR & ENC_A) == 0b00000011) && ((prev_spi & ENC_A) == 0b00000001)){
+    if(((SPDR & ENC_A) == 0b00000011) && ((prev_spi_a & ENC_A) == 0b00000001)){
       prev_spi = SPDR;
       return 1;
     }
     //CCW check for encoder B
-    if(((SPDR & ENC_B) == 0b00001100) && ((prev_spi & ENC_B) == 0b00001000)){
+    if(((SPDR & ENC_B) == 0b00001100) && ((prev_spi_a & ENC_B) == 0b00001000)){
       prev_spi = SPDR;
       return -1;
     }
     //CCW check for encoder B
-    if(((SPDR & ENC_B) == 0b00001100) && ((prev_spi & ENC_B) == 0b00000100)){
+    if(((SPDR & ENC_B) == 0b00001100) && ((prev_spi_a & ENC_B) == 0b00000100)){
       prev_spi = SPDR;
       return 1;
     }
@@ -225,6 +229,63 @@ int process_encoders(){
     prev_spi = SPDR;
   }
   return 0;
+}
+*/
+int process_encoders(){
+  PORTE &= (0 << PE6);              //flip the load bit on the shift reg
+  PORTE |= (1 << PE6);
+  SPDR = 0x00;                      //dummy SPI data
+  while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
+
+  // SPDR now stores encoder information
+  static uint8_t prev_spi_a = 0xFF;          //store the previous SPI packet
+  static uint8_t prev_spi_b = 0xFF;          //store the previous SPI packet
+
+  // flags for return outputs
+  static int direction_a = 0;
+  static int output_a = 0;
+
+  static int direction_b = 0;
+  static int output_b = 0;
+
+  int return_val = 0;
+
+  // update on new SPDR
+  if((prev_spi_a | ENC_A) != (SPDR | ENC_A)){
+    // sets initial direction (based on encoder A masks, output starts at 0)
+    if((prev_spi_a | ENC_A) == 0xFF && (SPDR | ENC_A) == 0b11111110) {prev_spi_a = SPDR; direction_a = 1; output_a = 0;}
+    if((prev_spi_a | ENC_A) == 0xFF && (SPDR | ENC_A) == 0b11111101) {prev_spi_a = SPDR; direction_a = -1; output_a = 0;}
+
+    // checks 3/4 rotation state, signals output is ready for home position
+    if((direction_a == -1) && (SPDR | ENC_A) == 0b11111110) {output_a = 1; prev_spi_a = SPDR;}
+    if((direction_a == 1) && (SPDR | ENC_A) == 0b11111101) {output_a = 1; prev_spi_a = SPDR;}
+
+    // disable output when going back
+    if((direction_a == -1) && (SPDR | ENC_A) == 0b11111101) {output_a = 0; prev_spi_a = SPDR;}
+    if((direction_a == 1) && (SPDR | ENC_A) == 0b11111110) {output_a = 0; prev_spi_a = SPDR;}
+
+    // if ready for a return value, set it to the intended direction
+    if((SPDR | ENC_A) == 0xFF && output_a == 1) {output_a = 0; prev_spi_a = SPDR; return_val += direction_a;} 
+
+    // if back at home position and output is 0, reset states
+    else if((SPDR | ENC_A) == 0xFF && direction_a != 0) {output_a = 0; direction_a = 0; prev_spi_a = SPDR;}
+  }
+  // same as above
+  if((prev_spi_b | ENC_B) != (SPDR | ENC_B)){
+    if((prev_spi_b | ENC_B) == 0xFF && (SPDR | ENC_B) == 0b11111011) {prev_spi_b = SPDR; direction_b = 1; output_b = 0;}
+    if((prev_spi_b | ENC_B) == 0xFF && (SPDR | ENC_B) == 0b11110111) {prev_spi_b = SPDR; direction_b = -1; output_b = 0;}
+
+    if((direction_b == -1) && (SPDR | ENC_B) == 0b11111011) {output_b = 1; prev_spi_b = SPDR;}
+    if((direction_b == 1) && (SPDR | ENC_B) == 0b11110111) {output_b = 1; prev_spi_b = SPDR;}
+
+    if((direction_b == -1) && (SPDR | ENC_B) == 0b11110111) {output_b = 0; prev_spi_b = SPDR;}
+    if((direction_b == 1) && (SPDR | ENC_B) == 0b11111011) {output_b = 0; prev_spi_b = SPDR;}
+
+    if((SPDR | ENC_B) == 0xFF && output_b == 1) {output_b = 0; prev_spi_b = SPDR; return_val += direction_b;} 
+    else if((SPDR | ENC_B) == 0xFF && direction_b != 0) {output_b = 0; direction_b = 0; prev_spi_b = SPDR;}
+  }
+  
+  return return_val;
 }
 
 void update_bar(void){
