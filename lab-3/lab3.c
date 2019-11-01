@@ -39,7 +39,7 @@ uint8_t dec_to_7seg[12];
 int digit = 0;
 
 //num to display on 7 seg
-uint16_t num_to_display = 0;
+int num_to_display = 0;
 
 //scale to multiply by the encoder output
 int count_scale = 1;
@@ -162,12 +162,10 @@ int process_buttons(void){
   DDRA = 0x00;
   PORTA = 0xFF;
 
-  // static uint8_t state = 0x00;
-
   //enable tristate buffer for pushbutton switches
   pick_digit(5);
 
- //now check each button and increment the count as needed
+ //now check each button and set the state as needed
   int button;
   for(button = 0; button < 8; button++){
 	  if(chk_buttons(button)) {
@@ -184,6 +182,7 @@ int process_buttons(void){
     } 
   }
 
+  //set counting scale based on button states
   if(button_state == 0x00) {count_scale = 1;} 
   if(button_state == 0x01) {count_scale = 2;} 
   if(button_state == 0x02) {count_scale = 4;} 
@@ -200,28 +199,29 @@ int process_encoders(){
   // SPDR now stores encoder information
   static uint8_t prev_spi = 0xFF;          //store the previous SPI packet
 
+  //check current and previous state, return a result if transition back to 0xFF found
   if(prev_spi != SPDR){
-
+    //CCW check for encoder A
     if(((SPDR & ENC_A) == 0b00000011) && ((prev_spi & ENC_A) == 0b00000010)){
       prev_spi = SPDR;
       return -1;
     }
-
+    //CW check for encoder A
     if(((SPDR & ENC_A) == 0b00000011) && ((prev_spi & ENC_A) == 0b00000001)){
       prev_spi = SPDR;
       return 1;
     }
-
+    //CCW check for encoder B
     if(((SPDR & ENC_B) == 0b00001100) && ((prev_spi & ENC_B) == 0b00001000)){
       prev_spi = SPDR;
       return -1;
     }
-
+    //CCW check for encoder B
     if(((SPDR & ENC_B) == 0b00001100) && ((prev_spi & ENC_B) == 0b00000100)){
       prev_spi = SPDR;
       return 1;
     }
-
+    //set the previous 
     prev_spi = SPDR;
   }
   return 0;
@@ -242,7 +242,8 @@ void setup_ports(void){
 
 void tcnt0_init(void){
   TIMSK |= (1<<TOIE0);             //enable interrupts
-  TCCR0 |= (1<<CS01) | (1<<CS00);  //normal mode, prescale by 128
+  TCCR0 |= (1<<CS01) | (1<<CS00);  //normal mode, prescale by 32
+  // TCCR0 |= (1<<CS02) | (1<<CS00);  //normal mode, prescale by 128
 }
 
 void spi_init(void){
@@ -251,20 +252,20 @@ void spi_init(void){
   SPSR |= (1 << SPI2X); // double speed operation
 } 
 
-// maybe separate ISR for encoders?
-
+//this ISR handles main lab functionality and timing
 ISR(TIMER0_OVF_vect){
+  //process button presses, change modes, and update counts
 	process_buttons();
-
   num_to_display += process_encoders() * count_scale;
 
   //bound the count to 0 - 1023
-  if(num_to_display > 1023) {num_to_display = 1023;} //change to go back to 1023 instead of 1
-  if(num_to_display < 0) {num_to_display = 0;}
+  if(num_to_display > 1023) {num_to_display = 0;} 
+  else if(num_to_display < 0) {num_to_display = 1023;}
 
   //break up the disp_value to 4, BCD digits in the array: call (segsum)
   segsum(num_to_display);
 
+  //update displays
 	update_bar();
 	update_7seg();
 }
@@ -272,6 +273,7 @@ ISR(TIMER0_OVF_vect){
 //***********************************************************************************
 uint8_t main(){
 
+  //setup Port I/O, seven seg data, and spi, interrupt, and counter enable
   setup_ports();
   encode_chars();
   tcnt0_init();
