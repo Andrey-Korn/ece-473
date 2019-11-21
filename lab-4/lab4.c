@@ -36,22 +36,32 @@
 #define ENC_B 0b11110011
 
 //holds data to be sent to the segments. logic zero turns segment on
-uint8_t segment_data[5]; 
+int segment_data[5]; 
 
 //decimal to 7-segment LED display encodings, logic "0" turns on segment
-uint8_t dec_to_7seg[12]; 
+int dec_to_7seg[12]; 
 
 //7 seg display counter
 int digit = 0;
 
 //numbers to display on 7 seg
-// uint16_t time = 0;
-static uint16_t time = 2350;
+static int time = 0;
 
-static uint16_t alarm = 0;
+static int alarm = 0;
+
+//states for alarm UI
+static uint8_t set_time = 0;
+
+static uint8_t set_alarm = 0;
+
+static uint8_t alarm_is_set = 0;
+
+static uint8_t snooze = 0;
+
+static uint8_t play_alarm = 0;
 
 //scale to multiply by the encoder output
-int count_scale = 1;
+// int count_scale = 1;
 
 uint8_t button_state = 0x00;
 
@@ -136,22 +146,11 @@ uint8_t chk_buttons(uint8_t button) {
 //BCD segment code in the array segment_data for display.                       
 //array is loaded at exit as:  |digit3|digit2|digit1|digit0|colon
 void segsum(uint16_t sum) {
-
   //break up decimal sum into 4 digit-segments
   segment_data[0] = dec_to_7seg[sum/1000]; //msb
   segment_data[1] = dec_to_7seg[(sum/100) % 10];
   segment_data[2] = dec_to_7seg[(sum/10) % 10];
   segment_data[3] = dec_to_7seg[sum % 10]; //lsb
-  // segment_data[4] = dec_to_7seg[10]; //assign empty value for colon
-  // segment_data[4] = dec_to_7seg[11];
-
-  //blank out leading zero digits 
-  // int segs;
-  // for(segs = 0; segs < 3; segs++){
-    // if segment is 0, blank it out
-    // if(segment_data[segs] == dec_to_7seg[0]) {segment_data[segs] = dec_to_7seg[10];}
-    // else {break;}
-  // }
 }//segment_sum
 
 void update_7seg(void){
@@ -168,7 +167,7 @@ void update_7seg(void){
   else{digit++;}
 }
 
-int process_buttons(void){
+void process_buttons(void){
   //make PORTA an input port with pullups   
   DDRA = 0x00;
   PORTA = 0xFF;
@@ -179,26 +178,67 @@ int process_buttons(void){
  //now check each button and set the state as needed
   int button;
   for(button = 0; button < 8; button++){
-    if(chk_buttons(button)) {
-      switch (button)
-      {
-      case 0:
-        button_state ^= 0x01;
-        break;
-      case 1:
-        button_state ^= 0x02;
-      default:
-        break;
+    if(chk_buttons(button)){
+      switch (button){
+        // set time case
+        case 0:
+          if(button_state == 0x01){
+            button_state = 0x00;
+            set_time = 0;
+          }
+          else{button_state = 0x01;}
+          break;
+        // set alarm case
+        case 1:
+          if(button_state == 0x02){
+            button_state = 0x00;
+            // set_alarm = 0;
+          }
+          else{button_state = 0x02;}
+          break;
+        // snooze button case
+        case 2:
+          snooze = 1;
+          break;
+        // clear alarm
+        case 3:
+          set_alarm = 0;
+          button_state = 0x00;
+          // TCCR1B |= (1 << WGM12);
+          set_time = 0;
+          alarm = 0;
+          alarm_is_set = 0;
+          play_alarm = 0;
+          clear_display();
+          string2lcd("Alarm cleared!");
+        default:
+          break;
       }
-    } 
+    }   
   }
 
-  //set counting scale based on button states
-  if(button_state == 0x00) {count_scale = 1;} 
-  if(button_state == 0x01) {count_scale = 2;} 
-  if(button_state == 0x02) {count_scale = 4;} 
-  if(button_state == 0x03) {count_scale = 0;} 
+  if(set_alarm == 1 && button_state != 0x02){
+    alarm_is_set = 1;
+    set_alarm = 0;
 
+    clear_display();
+    string2lcd("Alarm set");
+  }
+
+  // set flags for given states
+  if(button_state == 0x01){
+    set_time = 1;
+    set_alarm = 0;
+
+  }
+  if(button_state == 0x02){
+    set_alarm = 1;
+    set_time = 0;
+  }
+  // else{
+    // set_time = 0;
+    // set_alarm = 0;
+  // }
 }
 
 int process_encoders(int enc){
@@ -272,26 +312,17 @@ void update_bar(void){
 
 void setup_ports(void){
   // 1 for output, 0 for input
-	DDRB = 0xF0;   //set port bits 4-7 B as outputs
+	// DDRB = 0xF0;   //set port bits 4-7 B as outputs
+	DDRB |= (1 << PB4) | (1 << PB5) | (1 << PB6) | (1 << PB7);   //set port bits 4-7 B as outputs
   DDRE = 0x40;  // set port E bit 6 as output
+  DDRC = 0x03;  // set Port C bit 0 and 1 as output for tone
 }
-
-// void tcnt1_init(void){
-
-// }
-
-// void tcnt2_init(void){
-
-// }
-
-// void tcnt3_init(void){
-
-// }
 
 void spi_init(void){
   DDRB |= (1 << PB0) | (1 << PB1) | (1 << PB2) | (1 << PB3); //Turn on SS, MOSI, SCLK, MISO
   SPCR |= (1 << SPE) | (1 << MSTR); //enable SPI, master mode 
   SPSR |= (1 << SPI2X); // double speed operation
+  // PORTB |= _BV(PB1);  //port B initalization for SPI, SS_n off
 } 
 
 void tcnt0_init(void){
@@ -300,11 +331,88 @@ void tcnt0_init(void){
   TCCR0 |= (0 << CS02) | (0 << CS01) | (1 << CS00);  //normal mode, no prescale 
 }
 
+void init_alarm(void){
+  TIMSK |= (1 << OCIE1A);
+  TCCR1A = 0x00;
+  TCCR1B |= (1 << WGM12);
+  // TCCR1B |= (1 << WGM12) | (1 << CS11) | (1 << CS10);
+  TCCR1C = 0x00;
+  // OCR1A = 0x1DDC;
+  OCR1A = 0x0000;
+}
+
+void init_brightness(void){
+  //Initalize ADC and its ports
+  DDRF  &= ~(_BV(DDF7)); //make port F bit 7 is ADC input  
+  PORTF &= ~(_BV(PF7));  //port F bit 7 pullups must be off
+
+  ADMUX |= (1 << REFS0) | (1 << MUX0) | (1 << MUX1) | (1 << MUX2); //single-ended, input PORTF bit 7, right adjusted, 10 bits
+  ADCSRA |= (1 << ADEN) | (1 << ADPS2) | (1 << ADPS0); //ADC enabled, don't start yet, single shot mode 
+  TCCR2 = (1<<WGM21) | (1<<WGM20) | (1<<COM21) | (1<<COM20) | (1<<CS20) | (1<<CS21);
+}
+
+void update_brightness(void){
+  // char     lcd_str_h[16];  //holds string to send to lcd  
+  // char     lcd_str_l[16];  //holds string to send to lcd  
+  // div_t    fp_adc_result, fp_low_result;  //double fp_adc_result; 
+  // static uint16_t adc_result;     //holds adc result 
+  static uint8_t adc_result;
+
+  ADCSRA |= (1 << ADSC);                 //poke ADSC and start conversion
+
+  while(bit_is_clear(ADCSRA, ADIF)){}    //spin while interrupt flag not set
+
+  ADCSRA |= (1 << ADIF);                //its done, clear flag by writing a one 
+
+  adc_result = ADC; 
+
+  // fp_adc_result = div(adc_result, 205);              //do division by 205 (204.8 to be exact)
+  // itoa(fp_adc_result.quot, lcd_str_h, 10);           //convert non-fractional part to ascii string
+  // fp_low_result = div((fp_adc_result.rem*100), 205); //get the decimal fraction into non-fractional form 
+  // itoa(fp_low_result.quot, lcd_str_l, 10);           //convert fractional part to ascii string
+
+  //send string to LCD
+  // clear_display();
+  // string2lcd(lcd_str_h);  //write upper half
+  // char2lcd('.');          //write decimal point
+  // string2lcd(lcd_str_l);  //write lower half
+
+  //TCNT2 setup for providing the brightness control
+  //fast PWM mode, TOP=0xFF, clear on match, clk/128
+  //output is on PORTB bit 7 
+  // TCCR2 = (1<<WGM21) | (1<<WGM20) | (1<<COM21) | (1<<COM20) | (1<<CS20) | (1<<CS21);
+  OCR2 = 0xFF;  //set to adjust brightness control 
+  // OCR2 = 0x00;  //set to adjust brightness control 
+  // OCR2 = adc_result;  //set to adjust brightness control 
+  // OCR2 = adc_result;
+
+  // if (adc_result >= 0xF0){OCR2 = adc_result;}
+  // else{OCR2 = 0xF0;}
+}
+
+// ISR(TIMER2_OVF_vect){
+  // OCR2 = ADCH;
+// }
+
+void set_volume(void){
+  
+}
+ISR(TIMER1_COMPA_vect){
+  if(play_alarm == 1 && snooze == 0){
+    PORTC ^= 0x03;
+    OCR1A += 10;
+    if(OCR1A >= 0x09FF) {OCR1A = 0;}
+  }
+  else{
+    TCCR1B &= (0 << CS11) | (0 << CS10);
+  }
+}
 //1 second counter
 ISR(TIMER0_OVF_vect){
   static int timer0_count = 0;
   static int seconds = 0;
   static int colon_state = 0;
+  static uint8_t snooze_cnt = 0; 
 
   // tcnt0 overflows every 8 ms, 125 * 8ms = 1sec
   if(timer0_count == 125){
@@ -320,15 +428,18 @@ ISR(TIMER0_OVF_vect){
 
     seconds++;
 
+    if(snooze){snooze_cnt++;}
+    if(snooze_cnt == 10){
+      snooze = 0;
+      snooze_cnt = 0;
+    }
+
     //increment the time
-    // if(seconds == 60){
-    if(seconds == 1){
+    if(seconds == 60){
+    // if(seconds == 1){
       time++;
       seconds = 0;
     }
-
-    if(time % 100 == 60){time += 40;}
-    if(time >= 2400){time = 0;}
 
     // reset loop
     timer0_count = 0;
@@ -343,32 +454,73 @@ uint8_t main(){
   setup_ports();
   encode_chars();
   tcnt0_init();
-  // tcnt1_init();
-  // tcnt2_init();
-  // tcnt3_init();
+  init_brightness();
   spi_init();
+  init_alarm();
   lcd_init();
   sei();
 
-  string2lcd("hello");
-  line2_col1();
+  // string2lcd("hello");
+  // line2_col1();
 
-  while(1){  //process button presses, change modes, and update counts
+  while(1){
+    // process buttons to set UI states
     process_buttons();
-    // time += process_encoders(0) * 1;
-    // time += process_encoders(1) * 2;
 
-    //bound the count to 0 - 1023
-    // if(time > 1023) {time = 0;} 
-    // else if(time < 0) {time = 1023;}
+    if(set_time == 1){
+      // increment minutes
+      time += process_encoders(0);
+      //increment hours
+      time += process_encoders(1) * 100;      
+    }
 
-    //break up the disp_value to 4, BCD digits in the array: call (segsum)
-    segsum(time);
+    if (set_alarm == 1){
+      // increment minutes
+      alarm += process_encoders(0);
+      // increment hours
+      alarm += process_encoders(1) * 100;
+      // alarm_is_set = 1;
+    }
 
-    //update displays
+    if(time % 100 == 60){time += 40;}
+    if(time % 100 == 99){time -= 40;}
+    if(time >= 2400){time = 0;}
+    if(time < 0){time = 2359;}
+
+    if(alarm % 100 == 60){alarm += 40;}
+    if(alarm % 100 == 99){alarm -= 40;}
+    if(alarm >= 2400){alarm = 0;}
+    if(alarm < 0){alarm = 2359;}
+
+    // break up the disp_value to 4, BCD digits in the array: call (segsum)
+    if(set_alarm == 1){segsum(alarm);}
+    else{segsum(time);}
+
+    // segsum(alarm);
+
+    // set volume
+    set_volume();
+
+    // update displays
+    update_brightness();
     update_bar();
     update_7seg();
 
+    // write to screen 
+    if(alarm_is_set == 1){
+      // clear_display();
+      // string2lcd("Alarm set!");
+      // play sound here depending on snooze
+      if(time == alarm){play_alarm = 1;}
+      if(play_alarm && snooze == 0){
+        // play sound
+        TCCR1B |= (1 << WGM12) | (1 << CS11) | (1 << CS10);
+        // clear_display();
+        // string2lcd("WAKE UP!!!");
+      }
+    }
+
+    // main loop delay
     _delay_ms(2);
   }
 
