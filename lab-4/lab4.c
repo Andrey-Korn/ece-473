@@ -1,6 +1,6 @@
 // lab3.c 
 // Andrey Kornilovich
-// 11.11.19
+// 11.21.19
 
 //  HARDWARE SETUP:
 
@@ -29,41 +29,30 @@
 #define DEC_3 0x40
 #define PWM 0x80
 
-// #define ENC_A 0b00000011
-// #define ENC_B 0b00001100
-
 #define ENC_A 0b11111100
 #define ENC_B 0b11110011
 
-//holds data to be sent to the segments. logic zero turns segment on
-int segment_data[5]; 
+volatile int segment_data[5];              //holds data to be sent to the segments
 
-//decimal to 7-segment LED display encodings, logic "0" turns on segment
-int dec_to_7seg[12]; 
+volatile int dec_to_7seg[12];              //decimal to 7-segment LED display encodings
 
-//7 seg display counter
-int digit = 0;
+volatile int digit = 0;                    // 7 seg display counter
 
-//numbers to display on 7 seg
-static int time = 0;
+volatile int time = 0;              // time value to display to 7 seg
 
-static int alarm = 0;
+volatile int alarm = 0;             // alarm value to display to 7 seg
 
-//states for alarm UI
-static uint8_t set_time = 0;
+volatile uint8_t set_time = 0;      // UI state for setting the time
 
-static uint8_t set_alarm = 0;
+volatile uint8_t set_alarm = 0;     // UI state for setting the alarm
 
-static uint8_t alarm_is_set = 0;
+volatile uint8_t alarm_is_set = 0;  // flag for if the alarm is set
 
-static uint8_t snooze = 0;
+volatile uint8_t snooze = 0;        // snooze active flag
 
-static uint8_t play_alarm = 0;
+volatile uint8_t play_alarm = 0;    // flag to play the alarm tone
 
-//scale to multiply by the encoder output
-// int count_scale = 1;
-
-uint8_t button_state = 0x00;
+volatile uint8_t button_state = 0x00;      // current UI state controlled by buttons
 
 // write to dec_to_7seg all the pins to display 0-9, blank, and the decimal point
 void encode_chars(void){
@@ -83,41 +72,40 @@ void encode_chars(void){
 
 // calling this sets PORT B to output to a specific digit
 void pick_digit(int digit){
-  //set the correct port B output without clobbering the rest of the register
+  // set the correct port B output without clobbering the rest of the register
   switch (digit){
-	//first (msb) digit, Y4 on decoder
+	// first (msb) digit, Y4 on decoder
 	case 0:
-	  PORTB &= ~(DEC_1 | DEC_2); //&= to clear decoder control pins
-	  PORTB |= DEC_3;            //|= set decoder control pin  
+	  PORTB &= ~(DEC_1 | DEC_2); // &= to clear decoder control pins
+	  PORTB |= DEC_3;            // |= set decoder control pin  
 	  break;
-	//second digit, Y3 on decoder
+	// second digit, Y3 on decoder
 	case 1:
 	  PORTB &= ~(DEC_3); 
 	  PORTB |= (DEC_1 | DEC_2); 
 	  break;
-	//third digit, Y1 on decoder
+	// third digit, Y1 on decoder
 	case 2:
 	  PORTB &= ~(DEC_2 | DEC_3);
 	  PORTB |= DEC_1;
 	  break;
-	//fourth (lsb) digit, Y0 on decoder
+	// fourth (lsb) digit, Y0 on decoder
 	case 3:
 	  PORTB &= ~(DEC_1 | DEC_2 | DEC_3);
 	  break;
-	//colon, Y2 on decoder
+	// colon, Y2 on decoder
 	case 4:
 	  PORTB &= ~(DEC_1 | DEC_3);
 	  PORTB |= DEC_2;
 	  break;
-	//enable button board, Y7 on decoder
+	// enable button board, Y7 on decoder
 	case 5:
 	  PORTB |= (DEC_1 | DEC_2 | DEC_3);
 	  break;
-	//no digit or button board (off), Y6 on decoder
+	// no digit or button board (off), Y6 on decoder
 	case 6:
 	  PORTB &= ~(DEC_1);
 	  PORTB |= (DEC_2 | DEC_3);
-	  // break;
 	default:
 	  break;
   }  
@@ -134,7 +122,7 @@ void pick_digit(int digit){
 //
 
 uint8_t chk_buttons(uint8_t button) {
-  static uint16_t state[8] = {0}; //holds present state
+  static uint16_t state[8] = {0}; // holds present state
   state[button] = (state[button] << 1) | (! bit_is_clear(PINA, button)) | 0xE000;
   if (state[button] == 0xF000) return 1;
   return 0;
@@ -146,65 +134,58 @@ uint8_t chk_buttons(uint8_t button) {
 //BCD segment code in the array segment_data for display.                       
 //array is loaded at exit as:  |digit3|digit2|digit1|digit0|colon
 void segsum(uint16_t sum) {
-  //break up decimal sum into 4 digit-segments
+  // break up decimal sum into 4 digit-segments
   segment_data[0] = dec_to_7seg[sum/1000]; //msb
   segment_data[1] = dec_to_7seg[(sum/100) % 10];
   segment_data[2] = dec_to_7seg[(sum/10) % 10];
   segment_data[3] = dec_to_7seg[sum % 10]; //lsb
-}//segment_sum
+}
 
 void update_7seg(void){
-  //make PORTA an output
+  // make PORTA an output
   DDRA = 0xFF;
 
-  //assign port A and display to a digit
+  // assign port A and display to a digit
   PORTA = segment_data[digit];
   pick_digit(digit);
 
-  //increment the digit and reset
-  // digit++;
+  // increment the digit and reset
   if(digit > 4) {digit = 0;}
   else{digit++;}
 }
 
 void process_buttons(void){
-  //make PORTA an input port with pullups   
+  // make PORTA an input port with pullups   
   DDRA = 0x00;
   PORTA = 0xFF;
 
-  //enable tristate buffer for pushbutton switches
+  // enable tristate buffer for pushbutton switches
   pick_digit(5);
 
- //now check each button and set the state as needed
+ // now check each button and set the state as needed
   int button;
   for(button = 0; button < 8; button++){
     if(chk_buttons(button)){
       switch (button){
-        // set time case
-        case 0:
+        case 0: // set time case
           if(button_state == 0x01){
             button_state = 0x00;
             set_time = 0;
           }
           else{button_state = 0x01;}
           break;
-        // set alarm case
-        case 1:
+        case 1: // set alarm case
           if(button_state == 0x02){
             button_state = 0x00;
-            // set_alarm = 0;
           }
           else{button_state = 0x02;}
           break;
-        // snooze button case
-        case 2:
+        case 2: // snooze button case
           snooze = 1;
           break;
-        // clear alarm
-        case 3:
+        case 3: // clear alarm
           set_alarm = 0;
           button_state = 0x00;
-          // TCCR1B |= (1 << WGM12);
           set_time = 0;
           alarm = 0;
           alarm_is_set = 0;
@@ -221,36 +202,33 @@ void process_buttons(void){
   if(set_alarm == 1 && button_state != 0x02){
     alarm_is_set = 1;
     set_alarm = 0;
-
+    
     clear_display();
-    string2lcd("Alarm set!");
+    string2lcd("Alarm set!"); // print result to screen
   }
 
-  // set flags for given states
+  // set flags for setting the time
   if(button_state == 0x01){
     set_time = 1;
     set_alarm = 0;
 
   }
+  // set flags for setting the alarm
   if(button_state == 0x02){
     set_alarm = 1;
     set_time = 0;
   }
-  // else{
-    // set_time = 0;
-    // set_alarm = 0;
-  // }
 }
 
 int process_encoders(int enc){
-  PORTE &= (0 << PE6);              //flip the load bit on the shift reg
+  PORTE &= (0 << PE6);              // flip the load bit on the shift reg
   PORTE |= (1 << PE6);
-  SPDR = 0x00;                      //dummy SPI data
-  while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
+  SPDR = 0x00;                      // dummy SPI data
+  while(bit_is_clear(SPSR, SPIF)) {}  // wait till data sent out (while loop)
 
   // SPDR now stores encoder information
-  static uint8_t prev_spi_a = 0xFF;          //store the previous SPI packet
-  static uint8_t prev_spi_b = 0xFF;          //store the previous SPI packet
+  static uint8_t prev_spi_a = 0xFF;          // store the previous SPI packet
+  static uint8_t prev_spi_b = 0xFF;          // store the previous SPI packet
 
   // flags for return outputs
   static int direction_a = 0;
@@ -305,7 +283,12 @@ int process_encoders(int enc){
 }
 
 void update_bar(void){
-  SPDR = button_state;                       //load SPDR to send to bar graph
+  // SPDR = (0x80 && (alarm_is_set << 7)) | button_state;                       //load SPDR to send to bar graph
+  static uint8_t temp;
+  if(alarm_is_set == 1){temp = 0x80 + button_state;}
+  else{temp = button_state;}
+  SPDR = temp;                       //load SPDR to send to bar graph
+
   while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
   PORTB |= (1 << PB0);          //HC595 output reg - rising edge...
   PORTB &= (0 << PB0);          //and falling edge
@@ -313,7 +296,6 @@ void update_bar(void){
 
 void setup_ports(void){
   // 1 for output, 0 for input
-	// DDRB = 0xF0;   //set port bits 4-7 B as outputs
 	DDRB |= (1 << PB4) | (1 << PB5) | (1 << PB6) | (1 << PB7);   //set port bits 4-7 B as outputs
   DDRE = 0x40;  // set port E bit 6 as output
   DDRC |= (1 << PC0) | (1 << PC1) | (1 << PC7);  // set PC0/1 as alarm output, PC7 for volume
@@ -323,7 +305,6 @@ void spi_init(void){
   DDRB |= (1 << PB0) | (1 << PB1) | (1 << PB2) | (1 << PB3); //Turn on SS, MOSI, SCLK, MISO
   SPCR |= (1 << SPE) | (1 << MSTR); //enable SPI, master mode 
   SPSR |= (1 << SPI2X); // double speed operation
-  // PORTB |= _BV(PB1);  //port B initalization for SPI, SS_n off
 } 
 
 void tcnt0_init(void){
@@ -333,26 +314,37 @@ void tcnt0_init(void){
 }
 
 void init_alarm(void){
-  TIMSK |= (1 << OCIE1A);
-  TCCR1A = 0x00;
-  TCCR1B |= (1 << WGM12);
-  // TCCR1B |= (1 << WGM12) | (1 << CS11) | (1 << CS10);
-  TCCR1C = 0x00;
-  // OCR1A = 0x1DDC;
-  OCR1A = 0x0000;
+  TIMSK |= (1 << OCIE1A);       // enable interrupt
+  TCCR1A = 0x00;                // set WGM to 0, disable output compare
+  TCCR1B |= (1 << WGM12);       // 256 prescale
+  TCCR1C = 0x00;                // no force compare
+  OCR1A = 0x0000;               // set PWM duty cycle for interrupt
 }
 
 void init_volume(void){
-  // DDRE |= (1 << PE3); 
-  DDRE |= 0x80;
-  TCCR3A |= (1 << COM3A1) | (1 << COM3A0) | (1 << WGM31);
-  TCCR3B |= (1 << WGM33) | (1 << WGM32) | (1 << CS32);
-  // TCCR3A |= (1 << COM3A1) | (1 <<WGM31);
+  DDRE |= (1 << PE3); 
+
+  // TCCR3B |= (1 << WGM33) | (1 << WGM32) | ( 1 << CS30);
   // TCCR3B |= (1 << WGM32) | (1 << CS31);
+
+  TCCR3A |= (1 << COM3A1) | (1 << WGM31);
+  // TCCR3B |= (1 << WGM32) | (1 << CS31);
+  TCCR3B |= (1 << WGM32) | (1 << CS30);
+  // TCCR3B |= (1 << WGM32) | (1 << CS30) | ( 1 << CS32);
+
   TCCR3C = 0x00;
 
-  OCR3A = 512/2;
-  ICR3 = 0xF000;
+  // 20% duty cycle
+  // OCR3A = 0x0600;       // set at OCR3A
+  // ICR3 = 0x1000;        // clear at ICR3
+  // OCR3A = 0x0400;       // set at OCR3A
+  // ICR3 = 0x1000;        // clear at ICR3
+
+  // OCR3A = 0x0000;
+  
+  // OCR3A = 0x00;
+  // OCR3A = 0x01FF;
+  OCR3A = 300;
 }
 
 void init_brightness(void){
@@ -360,54 +352,50 @@ void init_brightness(void){
   DDRF  &= ~(_BV(DDF7)); //make port F bit 7 is ADC input  
   PORTF &= ~(_BV(PF7));  //port F bit 7 pullups must be off
 
+  // ADC enable
   ADMUX |= (1 << REFS0) | (1 << MUX0) | (1 << MUX1) | (1 << MUX2); //single-ended, input PORTF bit 7, right adjusted, 10 bits
   ADCSRA |= (1 << ADEN) | (1 << ADPS2) | (1 << ADPS0); //ADC enabled, don't start yet, single shot mode 
-  TCCR2 = (1<<WGM21) | (1<<WGM20) | (1<<COM21) | (1<<COM20) | (1<<CS20) | (1<<CS21);
-}
-
-void update_brightness(void){
-  // char     lcd_str_h[16];  //holds string to send to lcd  
-  // char     lcd_str_l[16];  //holds string to send to lcd  
-  // div_t    fp_adc_result, fp_low_result;  //double fp_adc_result; 
-  static uint16_t adc_result;     //holds adc result 
-  // static uint8_t adc_result;
-
-  ADCSRA |= (1 << ADSC);                 //poke ADSC and start conversion
-
-  while(bit_is_clear(ADCSRA, ADIF)){}    //spin while interrupt flag not set
-
-  ADCSRA |= (1 << ADIF);                //its done, clear flag by writing a one 
-
-  adc_result = ADC; 
 
   //TCNT2 setup for providing the brightness control
   //fast PWM mode, TOP=0xFF, clear on match, clk/128
   //output is on PORTB bit 7 
-  // TCCR2 = (1<<WGM21) | (1<<WGM20) | (1<<COM21) | (1<<COM20) | (1<<CS20) | (1<<CS21);
-  // OCR2 = 0xFF;  //set to adjust brightness control 
-  // OCR2 = 0x00;  //set to adjust brightness control 
-  // OCR2 = adc_result;  //set to adjust brightness control 
-  // OCR2 = adc_result;
-
-  if (adc_result < 350){OCR2 = 220;}
-  else{OCR2 = (adc_result * -0.4) + 300;}
+  TCCR2 = (1<<WGM21) | (1<<WGM20) | (1<<COM21) | (1<<COM20) | (1<<CS20) | (1<<CS21);
 }
 
+void update_brightness(void){
+  static uint16_t adc_result;     //holds adc result 
+
+  ADCSRA |= (1 << ADSC);                 //poke ADSC and start conversion
+  while(bit_is_clear(ADCSRA, ADIF)){}    //spin while interrupt flag not set
+  ADCSRA |= (1 << ADIF);                //its done, clear flag by writing a one 
+  adc_result = ADC; 
+
+  // bound ADC values, darker room
+  // if (adc_result < 380){OCR2 = 220;}
+  // else{OCR2 = (adc_result * -0.4) + 310;}
+
+  if (adc_result < 220){OCR2 = 220;}
+  else{OCR2 = (adc_result * -0.3) + 210;}
+}
 
 void set_volume(void){
   
 }
 
 ISR(TIMER1_COMPA_vect){
+  // play square wave if alarm is active
   if(play_alarm == 1 && snooze == 0){
     PORTC ^= 0x03;
+    // increment and reset value for annoying tone
     OCR1A += 10;
     if(OCR1A >= 0x09FF) {OCR1A = 0;}
   }
+  // otherwise disable output
   else{
     TCCR1B &= (0 << CS11) | (0 << CS10);
   }
 }
+
 //1 second counter
 ISR(TIMER0_OVF_vect){
   static int timer0_count = 0;
@@ -416,7 +404,8 @@ ISR(TIMER0_OVF_vect){
   static uint8_t snooze_cnt = 0; 
 
   // tcnt0 overflows every 8 ms, 125 * 8ms = 1sec
-  if(timer0_count == 125){
+  // if(timer0_count == 125){
+  if(timer0_count == 128){
     // flip colon every second
     if(colon_state == 0){
       segment_data[4] = dec_to_7seg[10];
@@ -431,6 +420,7 @@ ISR(TIMER0_OVF_vect){
 
     if(snooze){snooze_cnt++;}
     if(snooze_cnt == 10){
+    // if(snooze_cnt == 600){
       snooze = 0;
       snooze_cnt = 0;
     }
@@ -451,18 +441,16 @@ ISR(TIMER0_OVF_vect){
 //***********************************************************************************
 uint8_t main(){
 
-  //setup Port I/O, seven seg data, and spi, interrupt, and counter enable
+  //setup Port I/O, init functions, and interrupt enable
   setup_ports();
   encode_chars();
   tcnt0_init();
   init_brightness();
+  init_volume();
   spi_init();
   init_alarm();
   lcd_init();
   sei();
-
-  // string2lcd("hello");
-  // line2_col1();
 
   while(1){
     // process buttons to set UI states
@@ -475,14 +463,42 @@ uint8_t main(){
       time += process_encoders(1) * 100;      
     }
 
-    if (set_alarm == 1){
+    else if (set_alarm == 1){
       // increment minutes
       alarm += process_encoders(0);
       // increment hours
       alarm += process_encoders(1) * 100;
-      // alarm_is_set = 1;
     }
 
+    // if back at "home" in the UI, encoders set volume
+    else{
+      static int volume_state = 3;
+      volume_state += (process_encoders(1) + process_encoders(0));
+      if(volume_state > 4) {volume_state = 4;}
+      else if(volume_state < 0) {volume_state = 0;}
+
+      switch (volume_state)
+      {
+      case 0:
+        OCR3A = 0;
+        break;
+      case 1:
+        OCR3A = 200;
+        break;
+      case 2:
+        OCR3A = 300;
+        break;
+      case 3:
+        OCR3A = 350;
+        break;
+      case 4:
+        OCR3A = 400;
+      default:
+        break;
+      }
+    }    
+
+    // bound time and alarm counts to 24 hr clock
     if(time % 100 == 60){time += 40;}
     if(time % 100 == 99){time -= 40;}
     if(time >= 2400){time = 0;}
@@ -497,32 +513,24 @@ uint8_t main(){
     if(set_alarm == 1){segsum(alarm);}
     else{segsum(time);}
 
-    // segsum(alarm);
-
     // set volume
-    set_volume();
+    // set_volume();
 
     // update displays
     update_brightness();
     update_bar();
     update_7seg();
 
-    // write to screen 
     if(alarm_is_set == 1){
-      // clear_display();
-      // string2lcd("Alarm set!");
-      // play sound here depending on snooze
+      // enable here depending on snooze
       if(time == alarm){play_alarm = 1;}
       if(play_alarm && snooze == 0){
-        // play sound
+        // play sound, enable interrupt
         TCCR1B |= (1 << WGM12) | (1 << CS11) | (1 << CS10);
-        // clear_display();
-        // string2lcd("WAKE UP!!!");
       }
     }
 
     // main loop delay
-    // OCR3A -= 10;
     _delay_ms(2);
   }
 
