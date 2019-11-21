@@ -217,12 +217,13 @@ void process_buttons(void){
     }   
   }
 
+  // exiting alarm setting mode, and set global alarm state
   if(set_alarm == 1 && button_state != 0x02){
     alarm_is_set = 1;
     set_alarm = 0;
 
     clear_display();
-    string2lcd("Alarm set");
+    string2lcd("Alarm set!");
   }
 
   // set flags for given states
@@ -315,7 +316,7 @@ void setup_ports(void){
 	// DDRB = 0xF0;   //set port bits 4-7 B as outputs
 	DDRB |= (1 << PB4) | (1 << PB5) | (1 << PB6) | (1 << PB7);   //set port bits 4-7 B as outputs
   DDRE = 0x40;  // set port E bit 6 as output
-  DDRC = 0x03;  // set Port C bit 0 and 1 as output for tone
+  DDRC |= (1 << PC0) | (1 << PC1) | (1 << PC7);  // set PC0/1 as alarm output, PC7 for volume
 }
 
 void spi_init(void){
@@ -341,6 +342,19 @@ void init_alarm(void){
   OCR1A = 0x0000;
 }
 
+void init_volume(void){
+  // DDRE |= (1 << PE3); 
+  DDRE |= 0x80;
+  TCCR3A |= (1 << COM3A1) | (1 << COM3A0) | (1 << WGM31);
+  TCCR3B |= (1 << WGM33) | (1 << WGM32) | (1 << CS32);
+  // TCCR3A |= (1 << COM3A1) | (1 <<WGM31);
+  // TCCR3B |= (1 << WGM32) | (1 << CS31);
+  TCCR3C = 0x00;
+
+  OCR3A = 512/2;
+  ICR3 = 0xF000;
+}
+
 void init_brightness(void){
   //Initalize ADC and its ports
   DDRF  &= ~(_BV(DDF7)); //make port F bit 7 is ADC input  
@@ -355,8 +369,8 @@ void update_brightness(void){
   // char     lcd_str_h[16];  //holds string to send to lcd  
   // char     lcd_str_l[16];  //holds string to send to lcd  
   // div_t    fp_adc_result, fp_low_result;  //double fp_adc_result; 
-  // static uint16_t adc_result;     //holds adc result 
-  static uint8_t adc_result;
+  static uint16_t adc_result;     //holds adc result 
+  // static uint8_t adc_result;
 
   ADCSRA |= (1 << ADSC);                 //poke ADSC and start conversion
 
@@ -366,37 +380,24 @@ void update_brightness(void){
 
   adc_result = ADC; 
 
-  // fp_adc_result = div(adc_result, 205);              //do division by 205 (204.8 to be exact)
-  // itoa(fp_adc_result.quot, lcd_str_h, 10);           //convert non-fractional part to ascii string
-  // fp_low_result = div((fp_adc_result.rem*100), 205); //get the decimal fraction into non-fractional form 
-  // itoa(fp_low_result.quot, lcd_str_l, 10);           //convert fractional part to ascii string
-
-  //send string to LCD
-  // clear_display();
-  // string2lcd(lcd_str_h);  //write upper half
-  // char2lcd('.');          //write decimal point
-  // string2lcd(lcd_str_l);  //write lower half
-
   //TCNT2 setup for providing the brightness control
   //fast PWM mode, TOP=0xFF, clear on match, clk/128
   //output is on PORTB bit 7 
   // TCCR2 = (1<<WGM21) | (1<<WGM20) | (1<<COM21) | (1<<COM20) | (1<<CS20) | (1<<CS21);
-  OCR2 = 0xFF;  //set to adjust brightness control 
+  // OCR2 = 0xFF;  //set to adjust brightness control 
   // OCR2 = 0x00;  //set to adjust brightness control 
   // OCR2 = adc_result;  //set to adjust brightness control 
   // OCR2 = adc_result;
 
-  // if (adc_result >= 0xF0){OCR2 = adc_result;}
-  // else{OCR2 = 0xF0;}
+  if (adc_result < 350){OCR2 = 220;}
+  else{OCR2 = (adc_result * -0.4) + 300;}
 }
 
-// ISR(TIMER2_OVF_vect){
-  // OCR2 = ADCH;
-// }
 
 void set_volume(void){
   
 }
+
 ISR(TIMER1_COMPA_vect){
   if(play_alarm == 1 && snooze == 0){
     PORTC ^= 0x03;
@@ -521,6 +522,7 @@ uint8_t main(){
     }
 
     // main loop delay
+    // OCR3A -= 10;
     _delay_ms(2);
   }
 
