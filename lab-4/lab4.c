@@ -324,26 +324,10 @@ void init_alarm(void){
 void init_volume(void){
   DDRE |= (1 << PE3); 
 
-  // TCCR3B |= (1 << WGM33) | (1 << WGM32) | ( 1 << CS30);
-  // TCCR3B |= (1 << WGM32) | (1 << CS31);
-
   TCCR3A |= (1 << COM3A1) | (1 << WGM31);
-  // TCCR3B |= (1 << WGM32) | (1 << CS31);
   TCCR3B |= (1 << WGM32) | (1 << CS30);
-  // TCCR3B |= (1 << WGM32) | (1 << CS30) | ( 1 << CS32);
-
   TCCR3C = 0x00;
 
-  // 20% duty cycle
-  // OCR3A = 0x0600;       // set at OCR3A
-  // ICR3 = 0x1000;        // clear at ICR3
-  // OCR3A = 0x0400;       // set at OCR3A
-  // ICR3 = 0x1000;        // clear at ICR3
-
-  // OCR3A = 0x0000;
-  
-  // OCR3A = 0x00;
-  // OCR3A = 0x01FF;
   OCR3A = 300;
 }
 
@@ -359,7 +343,8 @@ void init_brightness(void){
   //TCNT2 setup for providing the brightness control
   //fast PWM mode, TOP=0xFF, clear on match, clk/128
   //output is on PORTB bit 7 
-  TCCR2 = (1<<WGM21) | (1<<WGM20) | (1<<COM21) | (1<<COM20) | (1<<CS20) | (1<<CS21);
+  // TCCR2 = (1<<WGM21) | (1<<WGM20) | (1<<COM21) | (1<<COM20) | (1<<CS20) | (1<<CS21);
+  TCCR2 = (1<<WGM21) | (1<<WGM20) | (1<<COM21) | (1<<CS20) | (1<<CS21);
 }
 
 void update_brightness(void){
@@ -370,16 +355,29 @@ void update_brightness(void){
   ADCSRA |= (1 << ADIF);                //its done, clear flag by writing a one 
   adc_result = ADC; 
 
+  // adc output is expected to be ~900-1000 for dark, <50 when bright
+  if(adc_result <= 100){OCR2 = 0x00;}
+  else if(adc_result <= 200){OCR2 = 0x20;}
+  else if(adc_result <= 300){OCR2 = 0x40;}
+  else if(adc_result <= 400){OCR2 = 0x60;}
+  else if(adc_result <= 500){OCR2 = 0x80;}
+  else if(adc_result <= 600){OCR2 = 0xA0;}
+  else if(adc_result <= 700){OCR2 = 0xB0;}
+  else if(adc_result <= 800){OCR2 = 0xC0;}
+  else if(adc_result <= 850){OCR2 = 0xC7;}
+  else if(adc_result <= 900){OCR2 = 0xD0;}
+  else if(adc_result <= 910){OCR2 = 0xD7;}
+  // else if(adc_result <= 920){OCR2 = 0xE0;}
+  // else if(adc_result <= 930){OCR2 = 0xE7;}
+  // else{OCR2 = 0xE7;}
+  else{OCR2 = 0xE0;}
+
   // bound ADC values, darker room
-  // if (adc_result < 380){OCR2 = 220;}
-  // else{OCR2 = (adc_result * -0.4) + 310;}
+  // if (adc_result < 380){OCR2 = 255;}
+  // else{OCR2 = (adc_result * -0.35) + 310;}
 
-  if (adc_result < 220){OCR2 = 220;}
-  else{OCR2 = (adc_result * -0.3) + 210;}
-}
-
-void set_volume(void){
-  
+  // if (adc_result < 220){OCR2 = 220;}
+  // else{OCR2 = (adc_result * -0.3) + 210;}
 }
 
 ISR(TIMER1_COMPA_vect){
@@ -418,6 +416,7 @@ ISR(TIMER0_OVF_vect){
 
     seconds++;
 
+    // cycle through snooze
     if(snooze){snooze_cnt++;}
     if(snooze_cnt == 10){
     // if(snooze_cnt == 600){
