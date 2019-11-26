@@ -221,10 +221,27 @@ void process_buttons(void){
 }
 
 int process_encoders(int enc){
-  PORTE &= (0 << PE6);              // flip the load bit on the shift reg
+  static uint8_t temp;
+  if(alarm_is_set == 1){temp = 0x80 + button_state;}
+  // else if(alarm_is_set && snooze){temp = 0x80 + 0x40 + button_state;}
+  // else if(snooze){temp = 0x40 + button_state;}
+  else{temp = button_state;}
+
+
   PORTE |= (1 << PE6);
-  SPDR = 0x00;                      // dummy SPI data
-  while(bit_is_clear(SPSR, SPIF)) {}  // wait till data sent out (while loop)
+  SPDR = temp;                       //load SPDR to send to bar graph
+  while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
+
+  PORTB |= (1 << PB0);          //HC595 output reg - rising edge...
+  PORTB &= (0 << PB0);          //and falling edge
+  PORTE &= (0 << PE6);              // flip the load bit on the shift reg
+  // while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
+  // PORTB |= (1 << PB0);          //HC595 output reg - rising edge...
+  // PORTB &= (0 << PB0);          //and falling edge
+  // PORTE &= (0 << PE6);              // flip the load bit on the shift reg
+  // PORTE |= (1 << PE6);
+  // SPDR = 0x00;                      // dummy SPI data
+  // while(bit_is_clear(SPSR, SPIF)) {}  // wait till data sent out (while loop)
 
   // SPDR now stores encoder information
   static uint8_t prev_spi_a = 0xFF;          // store the previous SPI packet
@@ -283,7 +300,7 @@ int process_encoders(int enc){
 }
 
 void update_bar(void){
-  // SPDR = (0x80 && (alarm_is_set << 7)) | button_state;                       //load SPDR to send to bar graph
+  /*
   static uint8_t temp;
   if(alarm_is_set == 1){temp = 0x80 + button_state;}
   else{temp = button_state;}
@@ -292,6 +309,7 @@ void update_bar(void){
   while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
   PORTB |= (1 << PB0);          //HC595 output reg - rising edge...
   PORTB &= (0 << PB0);          //and falling edge
+  */
 }
 
 void setup_ports(void){
@@ -355,11 +373,12 @@ void update_brightness(void){
   ADCSRA |= (1 << ADIF);                //its done, clear flag by writing a one 
   adc_result = ADC; 
 
+  /*
   // adc output is expected to be ~900-1000 for dark, <50 when bright
   if(adc_result <= 100){OCR2 = 0x00;}
-  else if(adc_result <= 200){OCR2 = 0x20;}
-  else if(adc_result <= 300){OCR2 = 0x40;}
-  else if(adc_result <= 400){OCR2 = 0x60;}
+  else if(adc_result <= 200){OCR2 = 0x30;}
+  else if(adc_result <= 300){OCR2 = 0x50;}
+  else if(adc_result <= 400){OCR2 = 0x70;}
   else if(adc_result <= 500){OCR2 = 0x80;}
   else if(adc_result <= 600){OCR2 = 0xA0;}
   else if(adc_result <= 700){OCR2 = 0xB0;}
@@ -371,6 +390,26 @@ void update_brightness(void){
   // else if(adc_result <= 930){OCR2 = 0xE7;}
   // else{OCR2 = 0xE7;}
   else{OCR2 = 0xE0;}
+  */
+
+  if(adc_result <= 100){OCR2 = 0x00;}
+  else if(adc_result <= 150){OCR2 = 0x30;}
+  else if(adc_result <= 200){OCR2 = 0x50;}
+  else if(adc_result <= 250){OCR2 = 0x70;}
+  else if(adc_result <= 300){OCR2 = 0x80;}
+  else if(adc_result <= 375){OCR2 = 0xA0;}
+  else if(adc_result <= 450){OCR2 = 0xB0;}
+  else if(adc_result <= 525){OCR2 = 0xC0;}
+  else if(adc_result <= 600){OCR2 = 0xC7;}
+  else if(adc_result <= 675){OCR2 = 0xD0;}
+  else if(adc_result <= 750){OCR2 = 0xD7;}
+  else if(adc_result <= 920){OCR2 = 0xE0;}
+  else if(adc_result <= 930){OCR2 = 0xE7;}
+  // else{OCR2 = 0xE7;}
+  else{OCR2 = 0xF0;}
+
+  // OCR2 = 0xD0;
+  // OCR2 = 0xF0;
 
   // bound ADC values, darker room
   // if (adc_result < 380){OCR2 = 255;}
