@@ -650,17 +650,23 @@ uint8_t main(){
     // check new UART data
     if(rcv_rdy == 1){
       rcv_rdy = 0;
-      // lcd_str_bottom[5] = uart_str[0];
-      // lcd_str_bottom[6] = uart_str[1];
-      // lcd_str_bottom[7] = "C";
-      strcpy(lcd_str_bottom, uart_str);
+      lcd_str_bottom[3] = ' ';
+      lcd_str_bottom[4] = uart_str[1];
+      // lcd_str_bottom[5] = 'y';
+      lcd_str_bottom[5] = uart_str[2];
+      // lcd_str_bottom[6] = 'e';
+      lcd_str_bottom[6] = 'C';
+      // lcd_str_bottom[2] = 'C';
+      // strcpy(lcd_str_bottom, uart_str);
     }
+
 
     // read temp data 
     twi_start_rd(LM73_ADDRESS, lm73_rd_buf, 2);
 
     // main loop delay
     _delay_ms(2);
+
 
     lm73_temp = lm73_rd_buf[0];
 
@@ -671,13 +677,17 @@ uint8_t main(){
     lm73_temp = (lm73_temp >> 7);
     // lm73_temp = (lm73_temp << 1);
 
+    // lcd_str_bottom[2] = 'C';
+
     // static char temp[16] = " ";
     static char temp[16];
     itoa(lm73_temp, temp, 10);
 
-    // lcd_str_bottom[0] = temp[0];
-    // lcd_str_bottom[1] = temp[1];
-    // lcd_str_bottom[2] = 'C';
+    lcd_str_bottom[0] = temp[0];
+    // lcd_str_bottom[0] = 'a';
+    lcd_str_bottom[1] = temp[1];
+    // lcd_str_bottom[1] = 'b';
+    lcd_str_bottom[2] = 'C';
   }
 
   return 0;

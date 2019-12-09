@@ -13,8 +13,10 @@
 //use the status codes in: usr/local/AVRMacPack/avr-3/include/util/twi.h
 
 #define SHT21_ADDRESS 0x80                      //SHT21, address pin floating
-#define SHT21_WRITE (SHT21_ADDRESS | TW_WRITE)  //LSB is a zero to write
-#define SHT21_READ  (SHT21_ADDRESS | TW_READ)   //LSB is a one to read
+// #define SHT21_WRITE (SHT21_ADDRESS | TW_WRITE)  //LSB is a zero to write
+#define SHT21_WRITE (SHT21_ADDRESS | 0)  //LSB is a zero to write
+// #define SHT21_READ  (SHT21_ADDRESS | TW_READ)   //LSB is a one to read
+#define SHT21_READ  (SHT21_ADDRESS | 1)   //LSB is a one to read
 #define SHT21_TEMP_HOLD         0xE3            //SHT21 temperature command, hold clk low while processing
 #define SHT21_RH_HOLD           0xE5            //SHT21 relative humidity command, hold clk low while processing
 #define SHT21_TEMP_NO_HOLD      0xF3            //SHT21 temp command, do not hold clk low while processing, requires master to poll

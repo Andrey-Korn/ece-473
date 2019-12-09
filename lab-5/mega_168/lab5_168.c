@@ -14,35 +14,33 @@ char lcd_str_array[16];  //holds string to send to lcd
 
 int i;
 
-volatile uint8_t sht21_wr_buf[2];
-volatile uint8_t sht21_rd_buf[2];
+uint8_t sht21_wr_buf[1];
+uint8_t sht21_rd_buf[2];
 
-// volatile char sht21_temp[16];
-volatile uint16_t result;
+char sht21_str[16];
+uint16_t sht21_temp;
+uint16_t final_temp;
 
 int main(){
     uart_init();
     init_twi();
     sei();
 
-    // sht21_wr_buf[2] = 0x00;
-    // sht21_wr_buf[2] = 0xE3;
-    sht21_wr_buf[0] = 0xE3;
-
-    // twi_start_rd(SHT21_ADDRESS, 0x80, 1);
+    sht21_wr_buf[0] = SHT21_TEMP_HOLD;
 
     while(1){
-        twi_start_wr(SHT21_ADDRESS, sht21_wr_buf, 1);
-        _delay_ms(40);
+        twi_start_wr(SHT21_WRITE, sht21_wr_buf, 1);
+        twi_start_rd(SHT21_READ, sht21_rd_buf, 2);
 
-        twi_start_rd(SHT21_ADDRESS, sht21_rd_buf, 2);
-        _delay_ms(40);
+        sht21_temp = sht21_rd_buf[0];
+        sht21_temp = (sht21_temp << 8);
+        sht21_temp |= sht21_rd_buf[1];
 
-        sht21_temp_convert(sht21_rd_buf, result, 0);
+        // sht21_temp_convert(sht21_str, sht21_temp, 0);
+        sht21_temp_convert(sht21_str, sht21_temp, 1);
 
-        itoa(result, lcd_str_array, 10);
+        strcpy(lcd_str_array, sht21_str);
 
-        // uart_puts("ye");
         uart_puts(lcd_str_array);
         uart_putc('\0');
 
