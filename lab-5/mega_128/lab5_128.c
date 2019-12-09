@@ -523,9 +523,12 @@ ISR(TIMER0_OVF_vect){
     timer0_count = 0;
 
     // update displays
-    update_lcd();
+    // update_lcd();
 
   }
+
+  if(timer0_count == 64){update_lcd();}
+
   timer0_count++;
 }
 
