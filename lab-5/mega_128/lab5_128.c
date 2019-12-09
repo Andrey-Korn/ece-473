@@ -14,6 +14,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include "uart_functions.h"
+#include "lm73_functions_skel.h"
+#include "twi_master.h"
 
 // definitions for segment pins and port B control pins
 #define SEG_A 0x01
@@ -54,6 +56,32 @@ volatile uint8_t snooze = 0;        // snooze active flag
 volatile uint8_t play_alarm = 0;    // flag to play the alarm tone
 
 volatile uint8_t button_state = 0x00;      // current UI state controlled by buttons
+
+volatile uint8_t rcv_rdy;           // flag for uart status
+
+volatile char uart_str[16];         // string for storing uart data
+
+// volatile char lcd_str_top[16] = " ";      // holds alarm info to send to lcd
+char lcd_str_top[16] = " ";      // holds alarm info to send to lcd
+
+// volatile char lcd_str_bottom[16] = " ";      // holds temp info to send to lcd
+char lcd_str_bottom[16] = " ";      // holds temp info to send to lcd
+
+volatile uint16_t lm73_temp;         // 16 bit value from lm73
+
+// volatile uint8_t twi_data[2];
+uint8_t twi_data[2];
+
+// extern uint8_t twi_addr;
+// uint8_t twi_addr;
+// extern uint8_t byte_cnt;
+// uint8_t byte_cnt;
+
+// extern uint8_t lm73_wr_buff[2];
+// extern uint8_t lm73_rd_buff[2];
+
+volatile uint8_t lm73_wr_buf[2];
+volatile uint8_t lm73_rd_buf[2];
 
 // write to dec_to_7seg all the pins to display 0-9, blank, and the decimal point
 void encode_chars(void){
@@ -191,8 +219,12 @@ void process_buttons(void){
           alarm = 0;
           alarm_is_set = 0;
           play_alarm = 0;
-          clear_display();
-          string2lcd("Alarm cleared!");
+
+          // clear_display();
+          // string2lcd("Alarm cleared!");
+
+          strcpy(lcd_str_top, "Alarm clr!\0");
+
         default:
           break;
       }
@@ -204,8 +236,11 @@ void process_buttons(void){
     alarm_is_set = 1;
     set_alarm = 0;
     
-    clear_display();
-    string2lcd("Alarm set!"); // print result to screen
+    // clear_display();
+    // string2lcd("Alarm set!"); // print result to screen
+    strcpy(lcd_str_top, "Alarm set!\0");
+
+
   }
 
   // set flags for setting the time
@@ -420,6 +455,19 @@ void update_brightness(void){
   // else{OCR2 = (adc_result * -0.3) + 210;}
 }
 
+void update_lcd(){
+  // clear_display();
+  // cursor_home();
+  line1_col1();
+  string2lcd(" ");
+  string2lcd(lcd_str_top);
+  // cursor_home();
+  line2_col1();
+  string2lcd(" ");
+  string2lcd(lcd_str_bottom);
+  // cursor_home();
+}
+
 ISR(TIMER1_COMPA_vect){
   // play square wave if alarm is active
   if(play_alarm == 1 && snooze == 0){
@@ -473,11 +521,33 @@ ISR(TIMER0_OVF_vect){
 
     // reset loop
     timer0_count = 0;
+
+    // update displays
+    update_lcd();
+
   }
   timer0_count++;
 }
 
+ISR(USART0_RX_vect){
+  static char rx_char; 
+  static uint8_t  i;
 
+  // start rcv portion
+  rx_char = UDR0;
+
+  uart_str[i++] = rx_char;  //store in array 
+
+  if(rx_char == '\0'){
+    rcv_rdy = 1;
+
+    uart_str[--i]  = (' ');     //clear the count field
+    uart_str[i+1]  = (' ');
+    uart_str[i+2]  = (' ');
+    i = 0;  
+  }
+
+}
 
 //***********************************************************************************
 uint8_t main(){
@@ -492,7 +562,15 @@ uint8_t main(){
   init_alarm();
   lcd_init();
   uart_init();
+  init_twi();
   sei();
+
+  lm73_wr_buf[2] = 0x00;
+
+  twi_start_wr(LM73_ADDRESS, lm73_wr_buf, 1);
+
+  _delay_ms(2);
+
 
   while(1){
     // process buttons to set UI states
@@ -555,9 +633,6 @@ uint8_t main(){
     if(set_alarm == 1){segsum(alarm);}
     else{segsum(time);}
 
-    // set volume
-    // set_volume();
-
     // update displays
     update_brightness();
     update_bar();
@@ -572,8 +647,37 @@ uint8_t main(){
       }
     }
 
+    // check new UART data
+    if(rcv_rdy == 1){
+      rcv_rdy = 0;
+      // lcd_str_bottom[5] = uart_str[0];
+      // lcd_str_bottom[6] = uart_str[1];
+      // lcd_str_bottom[7] = "C";
+      strcpy(lcd_str_bottom, uart_str);
+    }
+
+    // read temp data 
+    twi_start_rd(LM73_ADDRESS, lm73_rd_buf, 2);
+
     // main loop delay
     _delay_ms(2);
+
+    lm73_temp = lm73_rd_buf[0];
+
+    lm73_temp = (lm73_temp << 8);
+
+    lm73_temp |= lm73_rd_buf[1];
+
+    lm73_temp = (lm73_temp >> 7);
+    // lm73_temp = (lm73_temp << 1);
+
+    // static char temp[16] = " ";
+    static char temp[16];
+    itoa(lm73_temp, temp, 10);
+
+    // lcd_str_bottom[0] = temp[0];
+    // lcd_str_bottom[1] = temp[1];
+    // lcd_str_bottom[2] = 'C';
   }
 
   return 0;
