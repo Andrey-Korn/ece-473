@@ -1,5 +1,5 @@
 
-PRG            = lab5_168
+PRG            = lab6_168
 OBJ            = $(PRG).o sht21_functions.o uart_functions_m168.o twi_master.o 
 # OBJ            = $(PRG).o hd44780.o lm73_functions_skel.o twi_master.o 
 

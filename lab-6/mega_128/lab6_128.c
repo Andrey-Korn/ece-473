@@ -1,6 +1,5 @@
-// lab3.c 
 // Andrey Kornilovich
-// 11.21.19
+// lab6_128.c 
 
 //  HARDWARE SETUP:
 
@@ -38,7 +37,7 @@
 
 volatile int segment_data[5];              //holds data to be sent to the segments
 
-volatile int dec_to_7seg[12];              //decimal to 7-segment LED display encodings
+volatile int dec_to_7seg[13];              //decimal to 7-segment LED display encodings
 
 volatile int digit = 0;                    // 7 seg display counter
 
@@ -58,6 +57,8 @@ volatile uint8_t snooze = 0;        // snooze active flag
 
 volatile uint8_t radio_or_alarm = 0;        // snooze active flag
 
+volatile int radio_state = 0;       // state of the radio volume
+
 volatile uint8_t play_alarm = 0;    // flag to play the alarm tone
 
 volatile uint8_t button_state = 0x00;      // current UI state controlled by buttons
@@ -66,25 +67,22 @@ volatile uint8_t rcv_rdy;           // flag for uart status
 
 volatile char uart_str[16];         // string for storing uart data
 
-// volatile char lcd_str_top[16] = " ";      // holds alarm info to send to lcd
 char lcd_str_top[16] = " ";      // holds alarm info to send to lcd
 
-// volatile char lcd_str_bottom[16] = " ";      // holds temp info to send to lcd
 char lcd_str_bottom[16] = " ";      // holds temp info to send to lcd
 
 volatile uint16_t lm73_temp;         // 16 bit value from lm73
 
-uint8_t twi_data[2];
+uint8_t lm73_wr_buf[2];             // buffer to write to the lm73
 
-uint8_t lm73_wr_buf[2];
-
-uint8_t lm73_rd_buf[2];
+uint8_t lm73_rd_buf[2];             // buffer to read from the lm73
 
 
+// include necessary variables for running the radio
 enum radio_band{FM, AM, SW};
 volatile enum radio_band current_radio_band;
 
-volatile uint16_t  current_fm_freq =  9990; //0x2706, arg2, arg3; 99.9Mhz, 200khz steps
+volatile uint16_t  current_fm_freq =  9910; //0x2706, arg2, arg3; 99.9Mhz, 200khz steps
 // volatile uint16_t  current_fm_freq =  9780; //0x2706, arg2, arg3; 99.9Mhz, 200khz steps
 extern uint8_t  si4734_wr_buf[9];
 extern uint8_t  si4734_rd_buf[9];
@@ -250,6 +248,8 @@ void process_buttons(void){
           alarm = 0;
           alarm_is_set = 0;
           play_alarm = 0;
+          radio_state = 0;
+          set_property(0x4000, 0x0000); // mute
 
           strcpy(lcd_str_top, "Alarm clr!\0");
           break;
@@ -268,8 +268,22 @@ void process_buttons(void){
           break;
 
         case 7: // use radio or tone for alarm
-          if(radio_or_alarm == 0){radio_or_alarm = 1;}
-          else{radio_or_alarm = 0;}
+          if(radio_or_alarm == 0){
+            radio_or_alarm = 1;
+            lcd_str_bottom[10] = 'r';
+            lcd_str_bottom[11] = 'a';
+            lcd_str_bottom[12] = 'd';
+            lcd_str_bottom[13] = 'i';
+            lcd_str_bottom[14] = 'o';
+          }
+          else{
+            radio_or_alarm = 0;
+            lcd_str_bottom[10] = 't';
+            lcd_str_bottom[11] = 'o';
+            lcd_str_bottom[12] = 'n';
+            lcd_str_bottom[13] = 'e';
+            lcd_str_bottom[14] = ' ';
+          }
           break;
         default:
           break;
@@ -284,7 +298,7 @@ void process_buttons(void){
 
     strcpy(lcd_str_top, "Alarm set!\0");
   }
-
+  // exiting radio mode, mute and set flags
   if(set_radio == 1 && button_state != 0x10){
     set_radio = 0;
     set_property(0x4000, 0x0000); // mute
@@ -310,25 +324,6 @@ void process_buttons(void){
 }
 
 int process_encoders(int enc){
-  /*
-  static uint8_t temp;
-  if(alarm_is_set == 1){temp = 0x80 + button_state;}
-  // else if(alarm_is_set && snooze){temp = 0x80 + 0x40 + button_state;}
-  // else if(snooze){temp = 0x40 + button_state;}
-  else{temp = button_state;}
-
-
-  PORTE |= (1 << PE6);
-  SPDR = temp;                       //load SPDR to send to bar graph
-  while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
-
-  PORTB |= (1 << PB0);          //HC595 output reg - rising edge...
-  PORTB &= (0 << PB0);          //and falling edge
-  PORTE &= (0 << PE6);              // flip the load bit on the shift reg
-  */
-  // while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
-  // PORTB |= (1 << PB0);          //HC595 output reg - rising edge...
-  // PORTB &= (0 << PB0);          //and falling edge
   PORTE &= (0 << PE6);              // flip the load bit on the shift reg
   PORTE |= (1 << PE6);
   SPDR = 0x00;                      // dummy SPI data
@@ -390,33 +385,18 @@ int process_encoders(int enc){
   return return_val;
 }
 
+// grab button states, and display to bar graph
 void update_bar(void){
-  /*
-  static uint8_t temp;
-  if(alarm_is_set == 1){temp = 0x80 + button_state;}
-  else{temp = button_state;}
-  SPDR = temp;                       //load SPDR to send to bar graph
-
-  while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
-  PORTB |= (1 << PB0);          //HC595 output reg - rising edge...
-  PORTB &= (0 << PB0);          //and falling edge
-  */
   static uint8_t temp;
   temp = button_state;
   if(alarm_is_set == 1){temp += 0x80;}
-  else if(radio_or_alarm == 1){temp += 0x40;}
-  // else{temp = button_state;}
+  if(radio_or_alarm == 1){temp += 0x20;}
 
-
-  // PORTE |= (1 << PE6);
   SPDR = temp;                       //load SPDR to send to bar graph
   while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
 
   PORTB |= (1 << PB0);          //HC595 output reg - rising edge...
   PORTB &= (0 << PB0);          //and falling edge
-  // PORTE &= (0 << PE6);              // flip the load bit on the shift reg
-
-
 }
 
 void setup_ports(void){
@@ -526,17 +506,22 @@ void update_brightness(void){
   // else{OCR2 = (adc_result * -0.3) + 210;}
 }
 
+void init_strings(){
+  lcd_str_bottom[10] = 't';
+  lcd_str_bottom[11] = 'o';
+  lcd_str_bottom[12] = 'n';
+  lcd_str_bottom[13] = 'e';
+  lcd_str_bottom[14] = ' ';
+}
+
+// refresh lcd with our 2 strings, called every 0.5 sec
 void update_lcd(){
-  // clear_display();
-  // cursor_home();
   line1_col1();
   string2lcd(" ");
   string2lcd(lcd_str_top);
-  // cursor_home();
   line2_col1();
   string2lcd(" ");
   string2lcd(lcd_str_bottom);
-  // cursor_home();
 }
 
 ISR(TIMER1_COMPA_vect){
@@ -619,35 +604,38 @@ void init_radio(){
 }
 
 void set_volume(){
+  // use encoders to cycle between volume levels, bounded range
   static int volume_state = 3;
-    volume_state += process_encoders(0);
-    if(volume_state > 5) {volume_state = 5;}
-    else if(volume_state < 0) {volume_state = 0;}
+  volume_state += process_encoders(0);
+  if(volume_state > 5) {volume_state = 5;}
+  else if(volume_state < 0) {volume_state = 0;}
 
-    switch (volume_state)
-    {
-    case 0:
-      OCR3A = 0;
-      break;
-    case 1:
-      OCR3A = 200;
-      break;
-    case 2:
-      OCR3A = 250;
-      break;
-    case 3:
-      OCR3A = 300;
-      break;
-    case 4:
-      OCR3A = 350;
-      break;
-    case 5:
-      OCR3A = 400;
-    default:
-      break;
-    }  
+  // assign OCR3A to set volume level
+  switch (volume_state)
+  {
+  case 0:
+    OCR3A = 0;
+    break;
+  case 1:
+    OCR3A = 200;
+    break;
+  case 2:
+    OCR3A = 250;
+    break;
+  case 3:
+    OCR3A = 300;
+    break;
+  case 4:
+    OCR3A = 350;
+    break;
+  case 5:
+    OCR3A = 400;
+  default:
+    break;
+  }  
 }
 
+// routine for UART RX from mega168
 ISR(USART0_RX_vect){
   static char rx_char; 
   static uint8_t  i;
@@ -657,6 +645,7 @@ ISR(USART0_RX_vect){
 
   uart_str[i++] = rx_char;  //store in array 
 
+  // end of message
   if(rx_char == '\0'){
     rcv_rdy = 1;
 
@@ -665,7 +654,6 @@ ISR(USART0_RX_vect){
     uart_str[i+2]  = (' ');
     i = 0;  
   }
-
 }
 
 //***********************************************************************************
@@ -680,6 +668,7 @@ uint8_t main(){
   spi_init();
   init_alarm();
   lcd_init();
+  init_strings();
   uart_init();
   init_twi();
   init_radio();
@@ -698,8 +687,7 @@ uint8_t main(){
   _delay_ms(150);
   fm_tune_freq();     //tune to frequency      
 
-  // mute
-  set_property(0x4000, 0x0000);
+  set_property(0x4000, 0x0000); // mute
 
   while(1){
     // process buttons to set UI states
@@ -723,6 +711,7 @@ uint8_t main(){
       set_volume();
       int enc_temp = process_encoders(1);
       if(enc_temp != 0){
+        // tune radio, set FM range
         current_fm_freq += 20 * enc_temp;
         if(current_fm_freq > 10800){current_fm_freq = 8810;}
         if(current_fm_freq < 8800){current_fm_freq = 10790;}
@@ -744,7 +733,7 @@ uint8_t main(){
     if(alarm >= 2400){alarm = 0;}
     if(alarm < 0){alarm = 2359;}
 
-    // break up the disp_value to 4, BCD digits in the array: call (segsum)
+    // break up the disp_value to 4, BCD digits in the array
     if(set_alarm == 1){segsum(alarm);}
     else if(set_radio == 1){
       int temp = current_fm_freq;
@@ -760,21 +749,34 @@ uint8_t main(){
     if(alarm_is_set == 1){
       // enable here depending on snooze
       if(time == alarm){
-        OCR3A = 300;
         play_alarm = 1;
       }
+      // play either the radio, or the tone
       if(play_alarm && snooze == 0){
         // play sound, enable interrupt
         if(radio_or_alarm == 0){
           TCCR1B |= (1 << WGM12) | (1 << CS11) | (1 << CS10);
+          if(radio_state == 1){
+            set_property(0x4000, 0x0000); // mute radio
+            radio_state = 0;
+          }
         }
-        // else{
-          // set_property(0x4000, 0x003F); // unmute
-        // }
+        else{
+          if(radio_state == 0){ 
+            set_property(0x4000, 0x003F); // unmute
+            fm_tune_freq();
+            radio_state = 1;
+          }
+          TCCR1B &= (0 << CS11) | (0 << CS10);
+        }
       }
-      // else{
-        // set_property(0x4000, 0x0000); // mute
-      // }
+      // mute the radio when snoozed
+      else{
+        if(radio_state == 1){
+          set_property(0x4000, 0x0000); // mute
+          radio_state = 0;
+        }
+      }
     }
 
     // check new UART data
@@ -784,7 +786,11 @@ uint8_t main(){
       lcd_str_bottom[3] = ' ';
       lcd_str_bottom[4] = uart_str[1];
       lcd_str_bottom[5] = uart_str[2];
-      lcd_str_bottom[6] = 'C';
+      // lcd_str_bottom[6] = 'C';
+      lcd_str_bottom[6] = uart_str[3];
+      lcd_str_bottom[7] = uart_str[4];
+      lcd_str_bottom[8] = 'C';
+      lcd_str_bottom[9] = ' ';
     }
 
     // read temp data 
