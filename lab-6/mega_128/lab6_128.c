@@ -50,9 +50,13 @@ volatile uint8_t set_time = 0;      // UI state for setting the time
 
 volatile uint8_t set_alarm = 0;     // UI state for setting the alarm
 
+volatile uint8_t set_radio = 0;     // UI state for setting the alarm
+
 volatile uint8_t alarm_is_set = 0;  // flag for if the alarm is set
 
 volatile uint8_t snooze = 0;        // snooze active flag
+
+volatile uint8_t radio_or_alarm = 0;        // snooze active flag
 
 volatile uint8_t play_alarm = 0;    // flag to play the alarm tone
 
@@ -115,6 +119,7 @@ void encode_chars(void){
   dec_to_7seg[9] = ~(SEG_A | SEG_B | SEG_F | SEG_G | SEG_C | SEG_D); //9
   dec_to_7seg[10] = 0xFF; //display nothing
   dec_to_7seg[11] = ~(SEG_A | SEG_B); //Colon
+  dec_to_7seg[12] = ~(SEG_DP);
 }
 
 // calling this sets PORT B to output to a specific digit
@@ -188,6 +193,14 @@ void segsum(uint16_t sum) {
   segment_data[3] = dec_to_7seg[sum % 10]; //lsb
 }
 
+void radio_segsum(uint16_t sum){
+  if(sum/1000 > 0){segment_data[0] = dec_to_7seg[sum/1000];}
+  else{segment_data[0] = dec_to_7seg[10];}
+  segment_data[1] = dec_to_7seg[(sum/100) % 10];
+  segment_data[2] = dec_to_7seg[(sum/10) % 10] & dec_to_7seg[12];
+  segment_data[3] = dec_to_7seg[sum % 10]; //lsb
+}
+
 void update_7seg(void){
   // make PORTA an output
   DDRA = 0xFF;
@@ -238,11 +251,26 @@ void process_buttons(void){
           alarm_is_set = 0;
           play_alarm = 0;
 
-          // clear_display();
-          // string2lcd("Alarm cleared!");
-
           strcpy(lcd_str_top, "Alarm clr!\0");
+          break;
 
+        case 4: // tune and play radio
+          if(button_state == 0x10){
+            button_state = 0x00;
+          }
+          else{
+            button_state = 0x10;
+            
+            set_property(0x4000, 0x003F); // unmute
+            fm_tune_freq();     //tune to frequency 
+            segment_data[4] = dec_to_7seg[10]; // turn off colon
+          }
+          break;
+
+        case 7: // use radio or tone for alarm
+          if(radio_or_alarm == 0){radio_or_alarm = 1;}
+          else{radio_or_alarm = 0;}
+          break;
         default:
           break;
       }
@@ -253,28 +281,36 @@ void process_buttons(void){
   if(set_alarm == 1 && button_state != 0x02){
     alarm_is_set = 1;
     set_alarm = 0;
-    
-    // clear_display();
-    // string2lcd("Alarm set!"); // print result to screen
+
     strcpy(lcd_str_top, "Alarm set!\0");
-
-
   }
 
+  if(set_radio == 1 && button_state != 0x10){
+    set_radio = 0;
+    set_property(0x4000, 0x0000); // mute
+  }
   // set flags for setting the time
   if(button_state == 0x01){
     set_time = 1;
     set_alarm = 0;
-
+    set_radio = 0;
   }
   // set flags for setting the alarm
   if(button_state == 0x02){
     set_alarm = 1;
     set_time = 0;
+    set_radio = 0;
+  }
+  // set flags for setting the radio
+  if(button_state == 0x10){
+    set_radio = 1;
+    set_alarm = 0;
+    set_time = 0;
   }
 }
 
 int process_encoders(int enc){
+  /*
   static uint8_t temp;
   if(alarm_is_set == 1){temp = 0x80 + button_state;}
   // else if(alarm_is_set && snooze){temp = 0x80 + 0x40 + button_state;}
@@ -289,13 +325,14 @@ int process_encoders(int enc){
   PORTB |= (1 << PB0);          //HC595 output reg - rising edge...
   PORTB &= (0 << PB0);          //and falling edge
   PORTE &= (0 << PE6);              // flip the load bit on the shift reg
+  */
   // while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
   // PORTB |= (1 << PB0);          //HC595 output reg - rising edge...
   // PORTB &= (0 << PB0);          //and falling edge
-  // PORTE &= (0 << PE6);              // flip the load bit on the shift reg
-  // PORTE |= (1 << PE6);
-  // SPDR = 0x00;                      // dummy SPI data
-  // while(bit_is_clear(SPSR, SPIF)) {}  // wait till data sent out (while loop)
+  PORTE &= (0 << PE6);              // flip the load bit on the shift reg
+  PORTE |= (1 << PE6);
+  SPDR = 0x00;                      // dummy SPI data
+  while(bit_is_clear(SPSR, SPIF)) {}  // wait till data sent out (while loop)
 
   // SPDR now stores encoder information
   static uint8_t prev_spi_a = 0xFF;          // store the previous SPI packet
@@ -364,6 +401,22 @@ void update_bar(void){
   PORTB |= (1 << PB0);          //HC595 output reg - rising edge...
   PORTB &= (0 << PB0);          //and falling edge
   */
+  static uint8_t temp;
+  temp = button_state;
+  if(alarm_is_set == 1){temp += 0x80;}
+  else if(radio_or_alarm == 1){temp += 0x40;}
+  // else{temp = button_state;}
+
+
+  // PORTE |= (1 << PE6);
+  SPDR = temp;                       //load SPDR to send to bar graph
+  while(bit_is_clear(SPSR, SPIF)) {}  //wait till data sent out (while loop)
+
+  PORTB |= (1 << PB0);          //HC595 output reg - rising edge...
+  PORTB &= (0 << PB0);          //and falling edge
+  // PORTE &= (0 << PE6);              // flip the load bit on the shift reg
+
+
 }
 
 void setup_ports(void){
@@ -511,12 +564,12 @@ ISR(TIMER0_OVF_vect){
   // if(timer0_count == 125){
   if(timer0_count == 128){
     // flip colon every second
-    if(colon_state == 0){
-      segment_data[4] = dec_to_7seg[10];
+    if(colon_state == 0 && set_radio != 1){
+      segment_data[4] = dec_to_7seg[11];
       colon_state = 1;
     }
     else{
-      segment_data[4] = dec_to_7seg[11];
+      segment_data[4] = dec_to_7seg[10];
       colon_state = 0;
     }
 
@@ -542,9 +595,9 @@ ISR(TIMER0_OVF_vect){
 
     // update displays
     // update_lcd();
-
   }
 
+  // update LCD every 0.5 sec
   if(timer0_count == 64){update_lcd();}
 
   timer0_count++;
@@ -565,7 +618,35 @@ void init_radio(){
   DDRE  &= ~(0x80);   //now Port E bit 7 becomes input from the radio interrupt
 }
 
-// ISR(INT7_vect){STC_interrupt = TRUE;}
+void set_volume(){
+  static int volume_state = 3;
+    volume_state += process_encoders(0);
+    if(volume_state > 5) {volume_state = 5;}
+    else if(volume_state < 0) {volume_state = 0;}
+
+    switch (volume_state)
+    {
+    case 0:
+      OCR3A = 0;
+      break;
+    case 1:
+      OCR3A = 200;
+      break;
+    case 2:
+      OCR3A = 250;
+      break;
+    case 3:
+      OCR3A = 300;
+      break;
+    case 4:
+      OCR3A = 350;
+      break;
+    case 5:
+      OCR3A = 400;
+    default:
+      break;
+    }  
+}
 
 ISR(USART0_RX_vect){
   static char rx_char; 
@@ -602,21 +683,23 @@ uint8_t main(){
   uart_init();
   init_twi();
   init_radio();
+  set_volume();
   sei();
 
+  // write start command to lm73
   lm73_wr_buf[0] = 0x00;
-
   twi_start_wr(LM73_ADDRESS, lm73_wr_buf, 1);
 
   _delay_ms(2);
 
+  // power up routine for si4734 radio board
   fm_pwr_up();        //power up radio
   while(twi_busy()){} //spin while TWI is busy 
-  _delay_ms(2);
+  _delay_ms(150);
   fm_tune_freq();     //tune to frequency      
-  // current_fm_freq =  9990; //0x2706, arg2, arg3; 99.9Mhz, 200khz steps
-  while(twi_busy()){} //spin while TWI is busy 
-  fm_tune_freq();     //tune to frequency      
+
+  // mute
+  set_property(0x4000, 0x0000);
 
   while(1){
     // process buttons to set UI states
@@ -636,33 +719,19 @@ uint8_t main(){
       alarm += process_encoders(1) * 100;
     }
 
-    // if back at "home" in the UI, encoders set volume
-    else{
-      static int volume_state = 3;
-      volume_state += (process_encoders(1) + process_encoders(0));
-      if(volume_state > 4) {volume_state = 4;}
-      else if(volume_state < 0) {volume_state = 0;}
-
-      switch (volume_state)
-      {
-      case 0:
-        OCR3A = 0;
-        break;
-      case 1:
-        OCR3A = 200;
-        break;
-      case 2:
-        OCR3A = 300;
-        break;
-      case 3:
-        OCR3A = 350;
-        break;
-      case 4:
-        OCR3A = 400;
-      default:
-        break;
+    else if (set_radio == 1){
+      set_volume();
+      int enc_temp = process_encoders(1);
+      if(enc_temp != 0){
+        current_fm_freq += 20 * enc_temp;
+        if(current_fm_freq > 10800){current_fm_freq = 8810;}
+        if(current_fm_freq < 8800){current_fm_freq = 10790;}
+        fm_tune_freq();     //tune to frequency      
       }
-    }    
+    }
+
+    // if back at "home" in the UI, encoders set volume
+    else {set_volume();}
 
     // bound time and alarm counts to 24 hr clock
     if(time % 100 == 60){time += 40;}
@@ -677,6 +746,10 @@ uint8_t main(){
 
     // break up the disp_value to 4, BCD digits in the array: call (segsum)
     if(set_alarm == 1){segsum(alarm);}
+    else if(set_radio == 1){
+      int temp = current_fm_freq;
+      radio_segsum(temp / 10);
+    }
     else{segsum(time);}
 
     // update displays
@@ -686,53 +759,53 @@ uint8_t main(){
 
     if(alarm_is_set == 1){
       // enable here depending on snooze
-      if(time == alarm){play_alarm = 1;}
+      if(time == alarm){
+        OCR3A = 300;
+        play_alarm = 1;
+      }
       if(play_alarm && snooze == 0){
         // play sound, enable interrupt
-        TCCR1B |= (1 << WGM12) | (1 << CS11) | (1 << CS10);
+        if(radio_or_alarm == 0){
+          TCCR1B |= (1 << WGM12) | (1 << CS11) | (1 << CS10);
+        }
+        // else{
+          // set_property(0x4000, 0x003F); // unmute
+        // }
       }
+      // else{
+        // set_property(0x4000, 0x0000); // mute
+      // }
     }
 
     // check new UART data
     if(rcv_rdy == 1){
       rcv_rdy = 0;
+      // place new data from 168 board into lcd strings
       lcd_str_bottom[3] = ' ';
       lcd_str_bottom[4] = uart_str[1];
-      // lcd_str_bottom[5] = 'y';
       lcd_str_bottom[5] = uart_str[2];
-      // lcd_str_bottom[6] = 'e';
       lcd_str_bottom[6] = 'C';
-      // lcd_str_bottom[2] = 'C';
-      // strcpy(lcd_str_bottom, uart_str);
     }
-
 
     // read temp data 
     twi_start_rd(LM73_ADDRESS, lm73_rd_buf, 2);
 
     // main loop delay
-    _delay_ms(2);
+    // _delay_ms(2);
+    _delay_ms(1);
 
-
+    // shift new temp data in, and store result
     lm73_temp = lm73_rd_buf[0];
-
     lm73_temp = (lm73_temp << 8);
-
     lm73_temp |= lm73_rd_buf[1];
-
     lm73_temp = (lm73_temp >> 7);
-    // lm73_temp = (lm73_temp << 1);
 
-    // lcd_str_bottom[2] = 'C';
-
-    // static char temp[16] = " ";
     static char temp[16];
     itoa(lm73_temp, temp, 10);
 
+    // place temp data into lcd string
     lcd_str_bottom[0] = temp[0];
-    // lcd_str_bottom[0] = 'a';
     lcd_str_bottom[1] = temp[1];
-    // lcd_str_bottom[1] = 'b';
     lcd_str_bottom[2] = 'C';
   }
 
